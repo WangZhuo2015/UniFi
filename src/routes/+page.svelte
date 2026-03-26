@@ -328,6 +328,24 @@
                   <span class="text-gray-500 dark:text-gray-400">最大速率</span>
                   <span class="font-medium">{$selectedNetwork.features?.maxDataRate ?? 0} Mbps</span>
                 </div>
+                <div class="flex justify-between px-3 py-2 text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">保护间隔</span>
+                  <span class="font-medium">
+                    {#if $selectedNetwork.features?.guardInterval}
+                      {$selectedNetwork.features.guardInterval < 1000
+                        ? `0.${$selectedNetwork.features.guardInterval / 100} µs`
+                        : `${$selectedNetwork.features.guardInterval / 1000} µs`}
+                    {:else}
+                      0.8 µs
+                    {/if}
+                  </span>
+                </div>
+                {#if $selectedNetwork.features?.mcsIndex}
+                  <div class="flex justify-between px-3 py-2 text-sm">
+                    <span class="text-gray-500 dark:text-gray-400">MCS Index</span>
+                    <span class="font-medium">{$selectedNetwork.features.mcsIndex}</span>
+                  </div>
+                {/if}
               </div>
             </div>
 
