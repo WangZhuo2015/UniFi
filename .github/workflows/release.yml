@@ -7,24 +7,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create-release.outputs.id }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create Release
-        id: create-release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: UniFi ${{ github.ref_name }}
-          draft: true
-          generate_release_notes: true
-
   build:
-    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -32,27 +21,21 @@ jobs:
           # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            arch: x86_64
           # macOS aarch64
           - os: macos-latest
             target: aarch64-apple-darwin
-            arch: aarch64
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            arch: x86_64
           # Windows aarch64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            arch: aarch64
           # Linux x86_64
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            arch: x86_64
           # Linux aarch64
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
-            arch: aarch64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -69,7 +52,7 @@ jobs:
           version: 9
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -93,15 +76,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseName: 'UniFi ${{ github.ref_name }}'
+          releaseBody: 'See [CHANGELOG.md](https://github.com/WangZhuo2015/UniFi/blob/main/CHANGELOG.md) for details.'
+          releaseDraft: true
+          prerelease: false
           args: --target ${{ matrix.target }}
-
-  publish-release:
-    needs: [create-release, build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          release_id: ${{ needs.create-release.outputs.release_id }}
-          draft: false
