@@ -1,16 +1,16 @@
 [package]
-name = "wifi-tool"
+name = "unifi"
 version = "0.1.0"
 description = "Cross-platform WiFi analysis tool"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "wifi_tool_lib"
+name = "unifi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "wifi-tool-cli"
+name = "unifi-cli"
 path = "src/bin/cli.rs"
 required-features = ["cli"]
 

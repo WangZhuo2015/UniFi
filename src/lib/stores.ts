@@ -1,4 +1,4 @@
-// WiFi Tool - State Management
+// UniFi - State Management
 // Svelte stores, simple and direct
 
 import { writable, derived } from 'svelte/store';

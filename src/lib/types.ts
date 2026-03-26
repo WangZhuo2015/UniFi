@@ -1,4 +1,4 @@
-// WiFi Tool - Professional Type Definitions
+// UniFi - Professional Type Definitions
 
 /** Band type */
 export type Band = '2.4' | '5' | '6';

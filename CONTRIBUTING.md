@@ -1,4 +1,4 @@
-# Contributing to WiFi Tool
+# Contributing to UniFi
 
 Thank you for your interest in contributing! This document provides guidelines for contributions.
 

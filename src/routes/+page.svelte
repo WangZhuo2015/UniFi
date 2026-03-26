@@ -34,7 +34,7 @@
   <!-- Header -->
   <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 shrink-0">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold text-gray-900 dark:text-white">WiFi Tool</h1>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-white">UniFi</h1>
       <Button onclick={() => scan()} disabled={$isScanning}>
         {$isScanning ? '扫描中...' : '扫描'}
       </Button>
