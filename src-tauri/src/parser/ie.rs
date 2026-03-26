@@ -65,7 +65,7 @@ pub fn parse_capabilities(ie_data: &[u8]) -> (
     let mut security = "open".to_string();
     let mut security_details = SecurityDetails::default();
     let mut bss_load = None;
-    let mut country_code = None;
+    let country_code = None;
     let mut wps = false;
     let mut supported_rates = Vec::new();
     
@@ -178,7 +178,7 @@ pub fn parse_capabilities(ie_data: &[u8]) -> (
 }
 
 /// Detect channel width from IE data.
-pub fn detect_channel_width(ie_data: &[u8], channel: u8, band: Band) -> u16 {
+pub fn detect_channel_width(ie_data: &[u8], _channel: u8, _band: Band) -> u16 {
     let mut pos = 0;
     let mut ht_40 = false;
     let mut vht_80 = false;
@@ -341,44 +341,76 @@ fn parse_extended_capabilities(data: &[u8], protocols: &mut ProtocolExtensions) 
 }
 
 fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
-    if data.len() < 4 {
+    // RSN IE format:
+    // 2 bytes: version
+    // 4 bytes: group cipher (OUI 3 bytes + type 1 byte) - 00-0F-AC + cipher
+    // 2 bytes: pairwise cipher count
+    // n * 4 bytes: pairwise ciphers (OUI + type each)
+    // 2 bytes: auth suite count
+    // n * 4 bytes: auth suites (OUI + type each)
+    // 2 bytes: RSN capabilities (optional)
+
+    if data.len() < 8 {
         return ("open".to_string(), SecurityDetails::default());
     }
-    
-    let group_cipher = u16::from_le_bytes([data[2], data[3]]);
-    let cipher = match group_cipher {
+
+    // Version should be 1
+    let _version = u16::from_le_bytes([data[0], data[1]]);
+
+    // Group cipher: OUI (3 bytes at [2,3,4]) + cipher type (1 byte at [5])
+    // OUI 00-0F-AC is Microsoft OUI for WPA/WPA2
+    let group_cipher_type = data[5];
+    let cipher = match group_cipher_type {
         2 => "tkip",
         4 => "ccmp",
         8 => "gcmp",
         _ => "unknown",
     };
-    
-    if data.len() >= 6 {
-        let auth_count = u16::from_le_bytes([data[4], data[5]]) as usize;
-        let auth_offset = 6;
-        
-        if auth_offset + auth_count * 4 <= data.len() {
-            let auth = u16::from_le_bytes([data[auth_offset], data[auth_offset + 1]]);
-            
-            let (sec_type, auth_method) = match auth {
-                4 => ("wpa3", "sae"),
-                1 => ("wpa2-ent", "eap"),
-                _ => ("wpa2", "psk"),
-            };
-            
-            return (sec_type.to_string(), SecurityDetails {
-                security_type: sec_type.to_string(),
-                auth_method: auth_method.to_string(),
-                cipher: cipher.to_string(),
-                key_mgmt: vec![auth_method.to_string()],
-                is_enterprise: auth == 1,
-                is_wpa3_transition: false,
-                pmf_required: false,
-                pmf_capable: auth == 4,
-            });
+
+    // Pairwise cipher count at offset 6
+    if data.len() >= 8 {
+        let pairwise_count = u16::from_le_bytes([data[6], data[7]]) as usize;
+        let auth_offset = 8 + pairwise_count * 4;
+
+        if auth_offset + 2 <= data.len() {
+            let auth_count = u16::from_le_bytes([data[auth_offset], data[auth_offset + 1]]) as usize;
+            let auth_suite_offset = auth_offset + 2;
+
+            if auth_suite_offset + 4 <= data.len() {
+                // Auth suite: OUI (3 bytes) + auth type (1 byte at position +3)
+                let auth_type = data[auth_suite_offset + 3];
+
+                let (sec_type, auth_method) = match auth_type {
+                    1 => ("wpa2-ent", "eap"),
+                    2 => ("wpa2", "psk"),
+                    4 => ("wpa3", "sae"),
+                    8 => ("wpa3-ent", "eap"),
+                    _ => ("wpa2", "psk"),
+                };
+
+                // Check for PMF (802.11w) - in RSN capabilities at end
+                let caps_offset = auth_suite_offset + 4 + (auth_count - 1) * 4;
+                let (pmf_capable, pmf_required) = if caps_offset + 2 <= data.len() {
+                    let caps = u16::from_le_bytes([data[caps_offset], data[caps_offset + 1]]);
+                    ((caps & 0x0080) != 0, (caps & 0x0100) != 0)
+                } else {
+                    (false, false)
+                };
+
+                return (sec_type.to_string(), SecurityDetails {
+                    security_type: sec_type.to_string(),
+                    auth_method: auth_method.to_string(),
+                    cipher: cipher.to_string(),
+                    key_mgmt: vec![auth_method.to_string()],
+                    is_enterprise: auth_type == 1 || auth_type == 8,
+                    is_wpa3_transition: auth_type == 2 && pmf_capable,
+                    pmf_required,
+                    pmf_capable,
+                });
+            }
         }
     }
-    
+
     ("wpa2".to_string(), SecurityDetails {
         security_type: "wpa2".to_string(),
         auth_method: "psk".to_string(),

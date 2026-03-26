@@ -10,14 +10,16 @@ name = "unifi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
+name = "unifi"
+path = "src/main.rs"
+
+[[bin]]
 name = "unifi-cli"
 path = "src/bin/cli.rs"
-required-features = ["cli"]
 
 [features]
 default = ["gui"]
 gui = ["dep:tauri", "dep:tauri-plugin-opener"]
-cli = ["dep:clap"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -29,7 +31,7 @@ serde_json = "1"
 hex = "0.4"
 
 # CLI
-clap = { version = "4", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive"] }
 
 # GUI (Tauri)
 tauri = { version = "2", features = [], optional = true }

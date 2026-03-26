@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use std::time::Instant;
 
 use crate::types::*;
-use crate::scanner::{get_scanner, Scanner};
+use crate::scanner::get_scanner;
 use crate::parser::{parse_beacon, parse_all_ies};
 
 #[derive(Parser)]
