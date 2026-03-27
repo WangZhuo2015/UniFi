@@ -13,10 +13,14 @@
     "windows": [
       {
         "title": "UniFi",
-        "width": 900,
-        "height": 700,
-        "minWidth": 600,
-        "minHeight": 500
+        "width": 1000,
+        "height": 720,
+        "minWidth": 700,
+        "minHeight": 550,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "titleBarStyle": "Overlay"
       }
     ],
     "security": {
