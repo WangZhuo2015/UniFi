@@ -1,0 +1,17 @@
+[package]
+name = "scanner-nl80211"
+version = "0.1.0"
+edition = "2021"
+description = "Linux nl80211 scanner plugin"
+
+[dependencies]
+scanner-core = { path = "../scanner-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-packet-route = "0.19"
+netlink-packet-core = "0.7"
+netlink-sys = "0.8"
+
+[dev-dependencies]

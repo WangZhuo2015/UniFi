@@ -1,0 +1,16 @@
+[package]
+name = "scanner-libpcap"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform libpcap beacon scanner plugin"
+
+[dependencies]
+scanner-core = { path = "../scanner-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+pcap = "2"
+libc = "0.2"
+
+[dev-dependencies]

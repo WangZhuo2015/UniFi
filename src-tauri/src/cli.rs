@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use std::time::Instant;
 
 use crate::types::*;
-use crate::scanner::get_scanner;
+use crate::scanner::{get_scanner_with_mode, list_scanners, ScannerMode};
 use crate::parser::{parse_beacon, parse_all_ies};
 
 #[derive(Parser)]
@@ -24,65 +24,91 @@ enum Commands {
         /// Output format: table, json, csv
         #[arg(short, long, default_value = "table")]
         format: String,
-        
+
         /// Filter by band: 2.4, 5, 6, all
         #[arg(short, long, default_value = "all")]
         band: String,
-        
+
         /// Show IE details
         #[arg(long)]
         ie: bool,
+
+        /// Scanner to use: default, corewlan, airport, libpcap
+        #[arg(short, long, default_value = "default")]
+        scanner: String,
     },
-    
+
     /// Show current connection
-    Current,
-    
+    Current {
+        /// Scanner to use: default, corewlan, airport, libpcap
+        #[arg(short, long, default_value = "default")]
+        scanner: String,
+    },
+
     /// Show detailed info for a network
     Info {
         /// BSSID of the network
         bssid: String,
+
+        /// Scanner to use: default, corewlan, airport, libpcap
+        #[arg(short, long, default_value = "default")]
+        scanner: String,
     },
-    
+
     /// Parse IE data from hex string
     ParseIe {
         /// Hex-encoded IE data
         data: String,
     },
-    
+
     /// List available scanners
-    Scanners,
+    Scanners {
+        /// Show detailed diagnostic info
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 pub fn run() {
     let cli = Cli::parse();
-    
+
     match cli.command {
-        Commands::Scan { format, band, ie } => {
-            cmd_scan(&format, &band, ie);
+        Commands::Scan { format, band, ie, scanner } => {
+            cmd_scan(&format, &band, ie, &scanner);
         }
-        Commands::Current => {
-            cmd_current();
+        Commands::Current { scanner } => {
+            cmd_current(&scanner);
         }
-        Commands::Info { bssid } => {
-            cmd_info(&bssid);
+        Commands::Info { bssid, scanner } => {
+            cmd_info(&bssid, &scanner);
         }
         Commands::ParseIe { data } => {
             cmd_parse_ie(&data);
         }
-        Commands::Scanners => {
-            cmd_scanners();
+        Commands::Scanners { verbose } => {
+            cmd_scanners(verbose);
         }
     }
 }
 
-fn cmd_scan(format: &str, band: &str, show_ie: bool) {
-    let scanner = get_scanner();
+fn parse_scanner_mode(name: &str) -> ScannerMode {
+    match name.to_lowercase().as_str() {
+        "corewlan" => ScannerMode::CoreWLAN,
+        "airport" => ScannerMode::Airport,
+        "libpcap" => ScannerMode::Libpcap,
+        _ => ScannerMode::Default,
+    }
+}
+
+fn cmd_scan(format: &str, band: &str, show_ie: bool, scanner_name: &str) {
+    let mode = parse_scanner_mode(scanner_name);
+    let scanner = get_scanner_with_mode(mode);
     eprintln!("Using scanner: {}", scanner.name());
-    
+
     if scanner.requires_privilege() {
         eprintln!("Note: This scanner requires root/admin privileges");
     }
-    
+
     let start = Instant::now();
     let beacons = match scanner.scan() {
         Ok(b) => b,
@@ -91,9 +117,9 @@ fn cmd_scan(format: &str, band: &str, show_ie: bool) {
             std::process::exit(1);
         }
     };
-    
+
     let duration = start.elapsed();
-    
+
     // Filter by band
     let filtered: Vec<_> = beacons.iter()
         .filter(|b| {
@@ -101,13 +127,13 @@ fn cmd_scan(format: &str, band: &str, show_ie: bool) {
             else { b.band.as_str() == band }
         })
         .collect();
-    
+
     match format {
         "json" => print_json(&filtered, show_ie),
         "csv" => print_csv(&filtered),
         _ => print_table(&filtered, show_ie),
     }
-    
+
     eprintln!("\nScanned {} networks in {:?}", filtered.len(), duration);
 }
 
@@ -132,7 +158,7 @@ fn print_table(beacons: &[&RawBeacon], show_ie: bool) {
             b.signal_dbm,
             highest_std,
         );
-        
+
         if show_ie && !b.ie_data.is_empty() {
             let ie = parse_all_ies(&b.ie_data);
             println!("  Standard: {}", ie.detection_summary.detected_standard);
@@ -162,9 +188,12 @@ fn print_csv(beacons: &[&RawBeacon]) {
     }
 }
 
-fn cmd_current() {
-    let scanner = get_scanner();
-    
+fn cmd_current(scanner_name: &str) {
+    let mode = parse_scanner_mode(scanner_name);
+    let scanner = get_scanner_with_mode(mode);
+
+    eprintln!("Using scanner: {}", scanner.name());
+
     match scanner.current() {
         Ok(Some(b)) => {
             let net = parse_beacon(&b);
@@ -185,9 +214,12 @@ fn cmd_current() {
     }
 }
 
-fn cmd_info(bssid: &str) {
-    let scanner = get_scanner();
-    
+fn cmd_info(bssid: &str, scanner_name: &str) {
+    let mode = parse_scanner_mode(scanner_name);
+    let scanner = get_scanner_with_mode(mode);
+
+    eprintln!("Using scanner: {}", scanner.name());
+
     let beacons = match scanner.scan() {
         Ok(b) => b,
         Err(e) => {
@@ -195,11 +227,11 @@ fn cmd_info(bssid: &str) {
             std::process::exit(1);
         }
     };
-    
+
     for b in beacons {
         if b.bssid_string().to_uppercase() == bssid.to_uppercase() {
             let net = parse_beacon(&b);
-            
+
             println!("=== {} ===", net.ssid.as_deref().unwrap_or("[Hidden]"));
             println!();
             println!("BSSID:        {}", b.bssid_string());
@@ -230,7 +262,7 @@ fn cmd_info(bssid: &str) {
             println!("802.11r (FT):  {}", net.protocols.ft);
             println!("802.11v (BSS): {}", net.protocols.bss_transition);
             println!("802.11w (PMF): {}", net.protocols.pmf);
-            
+
             if !b.ie_data.is_empty() {
                 println!();
                 println!("=== IE Details ===");
@@ -238,11 +270,11 @@ fn cmd_info(bssid: &str) {
                 println!("Detection: {}", ie.detection_summary.detected_standard);
                 println!("IE Count:  {}", ie.elements.len());
             }
-            
+
             return;
         }
     }
-    
+
     eprintln!("Network not found: {}", bssid);
     std::process::exit(1);
 }
@@ -255,17 +287,17 @@ fn cmd_parse_ie(data: &str) {
             std::process::exit(1);
         }
     };
-    
+
     let ie = parse_all_ies(&bytes);
-    
+
     println!("=== IE Details ===");
     println!("Total Length: {} bytes", ie.total_length);
     println!("Detection: {}", ie.detection_summary.detected_standard);
     println!();
-    
+
     println!("{:<4} {:<6} {:<24} {:<6}", "ID", "Hex", "Name", "Len");
     println!("{}", "-".repeat(50));
-    
+
     for e in &ie.elements {
         println!("{:<4} {:<6} {:<24} {:<6}",
             e.element_id,
@@ -276,10 +308,78 @@ fn cmd_parse_ie(data: &str) {
     }
 }
 
-fn cmd_scanners() {
-    let scanner = get_scanner();
-    println!("Default scanner: {}", scanner.name());
-    println!("Requires privilege: {}", scanner.requires_privilege());
+fn cmd_scanners(verbose: bool) {
+    println!("Available scanners:");
+    println!();
+
+    // Check each scanner with detailed info
+    #[cfg(target_os = "macos")]
+    {
+        use crate::scanner::ScannerMode;
+
+        // CoreWLAN
+        let corewlan = crate::scanner::get_scanner_with_mode(ScannerMode::CoreWLAN);
+        let cw_avail = corewlan.is_available();
+        println!("  {} CoreWLAN{}", if cw_avail { "✓" } else { "✗" }, if cw_avail { "" } else { " (unavailable)" });
+        if verbose {
+            println!("      - App Store compatible");
+            println!("      - No IE data (no WiFi standard detection)");
+            println!("      - BSSID requires Location permission");
+        }
+
+        // Airport
+        let airport = crate::scanner::get_scanner_with_mode(ScannerMode::Airport);
+        let ap_avail = airport.is_available();
+        println!("  {} Airport{}", if ap_avail { "✓" } else { "✗" }, if ap_avail { "" } else { " (unavailable)" });
+        if verbose {
+            println!("      - Full IE data (WiFi 4/5/6/7 detection)");
+            println!("      - May not work on macOS 26+");
+        }
+
+        // Libpcap
+        let libpcap = crate::scanner::get_scanner_with_mode(ScannerMode::Libpcap);
+        let lp_avail = libpcap.is_available();
+        let lp_reason = if !lp_avail {
+            // Get the reason
+            let is_root = unsafe { libc::getuid() == 0 };
+            if !is_root {
+                " (requires root/sudo)"
+            } else {
+                " (no WiFi interface found)"
+            }
+        } else {
+            ""
+        };
+        println!("  {} Libpcap{}", if lp_avail { "✓" } else { "✗" }, lp_reason);
+        if verbose {
+            println!("      - Captures raw 802.11 beacon frames");
+            println!("      - Full IE data (WiFi 4/5/6/7 detection)");
+            println!("      - Works on macOS 26+");
+            println!("      - Cannot be used on App Store");
+            if !lp_avail {
+                println!("      - Run with: sudo unifi-cli scan --scanner libpcap");
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        println!("  ✓ nl80211");
+        println!("  ✗ Libpcap (requires root/sudo)");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        println!("  ✓ WlanAPI");
+    }
+
+    println!();
+    println!("Usage: unifi scan --scanner <name>");
+    println!();
+
+    if !verbose {
+        println!("Use --verbose for more details");
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {

@@ -1,0 +1,206 @@
+name: Scanner Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - '.github/workflows/scanner-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - '.github/workflows/scanner-tests.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Core tests - run on all platforms
+  test-core:
+    name: Test scanner-core
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Test scanner-core
+        run: cargo test -p scanner-core --all-features
+      
+      - name: Check scanner-core
+        run: cargo clippy -p scanner-core --all-features -- -D warnings
+
+  # macOS scanner tests
+  test-macos:
+    name: Test macOS scanners
+    runs-on: macos-latest
+    needs: test-core
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Test scanner-airport
+        run: cargo test -p scanner-airport --all-features
+      
+      - name: Test scanner-corewlan
+        run: cargo test -p scanner-corewlan --all-features
+      
+      - name: Test scanner-libpcap
+        run: cargo test -p scanner-libpcap --all-features
+      
+      - name: Check all macOS scanners
+        run: cargo clippy -p scanner-airport -p scanner-corewlan -p scanner-libpcap --all-features -- -D warnings
+      
+      - name: Build main app
+        run: cargo build -p unifi --no-default-features
+
+  # Windows scanner tests
+  test-windows:
+    name: Test Windows scanners
+    runs-on: windows-latest
+    needs: test-core
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Test scanner-wlanapi
+        run: cargo test -p scanner-wlanapi --all-features
+      
+      - name: Check scanner-wlanapi
+        run: cargo clippy -p scanner-wlanapi --all-features -- -D warnings
+      
+      - name: Build main app
+        run: cargo build -p unifi --no-default-features
+
+  # Linux scanner tests
+  test-linux:
+    name: Test Linux scanners
+    runs-on: ubuntu-latest
+    needs: test-core
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Install libpcap-dev
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Test scanner-nl80211
+        run: cargo test -p scanner-nl80211 --all-features
+      
+      - name: Test scanner-libpcap
+        run: cargo test -p scanner-libpcap --all-features
+      
+      - name: Check all Linux scanners
+        run: cargo clippy -p scanner-nl80211 -p scanner-libpcap --all-features -- -D warnings
+      
+      - name: Build main app
+        run: cargo build -p unifi --no-default-features
+
+  # Integration tests
+  integration-test:
+    name: Integration tests
+    runs-on: ${{ matrix.os }}
+    needs: [test-macos, test-windows, test-linux]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Install libpcap-dev (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      
+      - name: Run integration tests
+        run: cargo test --workspace --all-features -- --test-threads=1
+
+  # Build check
+  build-check:
+    name: Build check
+    runs-on: ${{ matrix.os }}
+    needs: [test-macos, test-windows, test-linux]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            features: ""
+          - os: macos-latest
+            features: ""
+          - os: windows-latest
+            features: ""
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Install libpcap-dev (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      
+      - name: Build workspace
+        run: cargo build --workspace ${{ matrix.features }}
+      
+      - name: Check documentation
+        run: cargo doc --workspace --no-deps

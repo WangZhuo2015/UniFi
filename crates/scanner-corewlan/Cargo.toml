@@ -1,0 +1,17 @@
+[package]
+name = "scanner-corewlan"
+version = "0.1.0"
+edition = "2021"
+description = "macOS CoreWLAN framework scanner plugin (App Store compatible)"
+
+[dependencies]
+scanner-core = { path = "../scanner-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+objc-foundation = "0.1"
+libc = "0.2"
+
+[dev-dependencies]

@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/scanner-core",
+    "crates/scanner-airport",
+    "crates/scanner-corewlan",
+    "crates/scanner-libpcap",
+    "crates/scanner-wlanapi",
+    "crates/scanner-nl80211",
+    "src-tauri",
+]
+
+[workspace.dependencies]
+scanner-core = { path = "crates/scanner-core" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"

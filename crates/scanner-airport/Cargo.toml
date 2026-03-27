@@ -1,0 +1,15 @@
+[package]
+name = "scanner-airport"
+version = "0.1.0"
+edition = "2021"
+description = "macOS Airport CLI scanner plugin"
+
+[dependencies]
+scanner-core = { path = "../scanner-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+plist = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+
+[dev-dependencies]

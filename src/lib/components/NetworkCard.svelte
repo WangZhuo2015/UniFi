@@ -35,6 +35,9 @@
 </script>
 
 <button
+  data-testid="network-card"
+  data-bssid={network.bssid}
+  data-ssid={network.ssid ?? ''}
   class={cn(
     'w-full p-3 rounded-xl border transition-all duration-200',
     'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100',
@@ -49,7 +52,7 @@
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-2 min-w-0">
       <span class="text-lg shrink-0">{securityIcon(network.security)}</span>
-      <span class="font-semibold truncate text-base">
+      <span data-testid="ssid" class="font-semibold truncate text-base">
         {network.ssid ?? '[隐藏网络]'}
       </span>
       {#if network.wpsEnabled}

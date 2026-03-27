@@ -1,0 +1,12 @@
+[package]
+name = "scanner-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core scanner trait and types for WiFi scanning plugins"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

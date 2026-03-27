@@ -181,7 +181,7 @@
                     : 'bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600'}"
                   onclick={() => activeBand = band as typeof activeBand}
                 >
-                  {band === 'all' ? '全部' : '{band}G'}
+                  {band === 'all' ? '全部' : `${band}G`}
                 </button>
               {/each}
             </div>

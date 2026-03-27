@@ -10,7 +10,7 @@ mod vendor;
 pub mod cli;
 
 pub use types::*;
-pub use scanner::get_scanner;
+pub use scanner::{get_scanner, get_scanner_with_mode, list_scanners, ScannerMode};
 
 // ============================================================================
 // GUI Mode (Tauri)
@@ -21,7 +21,7 @@ mod gui {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tauri::Emitter;
-    use scanner::get_scanner;
+    use scanner::{get_scanner, ScannerMode};
     use parser::{parse_beacon, parse_all_ies};
 
     static MONITORING: AtomicBool = AtomicBool::new(false);
@@ -29,6 +29,17 @@ mod gui {
     #[tauri::command]
     pub fn scan_networks() -> Result<Vec<Network>, String> {
         scanner::scan_networks().map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn scan_networks_with_scanner(scanner_name: String) -> Result<Vec<Network>, String> {
+        let mode = match scanner_name.to_lowercase().as_str() {
+            "corewlan" => ScannerMode::CoreWLAN,
+            "airport" => ScannerMode::Airport,
+            "libpcap" => ScannerMode::Libpcap,
+            _ => ScannerMode::Default,
+        };
+        scanner::scan_networks_with_mode(mode).map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -56,7 +67,7 @@ mod gui {
     pub fn get_ie_details(bssid: String) -> Option<IEDetails> {
         let scanner = get_scanner();
         let beacons = scanner.scan().ok()?;
-        
+
         for beacon in beacons {
             if beacon.bssid_string().to_uppercase() == bssid.to_uppercase() {
                 return Some(parse_all_ies(&beacon.ie_data));
@@ -71,9 +82,19 @@ mod gui {
     }
 
     #[tauri::command]
+    pub fn list_available_scanners() -> Vec<ScannerInfo> {
+        let scanners = scanner::list_scanners();
+        scanners.into_iter().map(|(name, available, requires_root)| ScannerInfo {
+            name: name.to_string(),
+            available,
+            requires_root,
+        }).collect()
+    }
+
+    #[tauri::command]
     pub fn start_monitor(app: tauri::AppHandle) -> Result<(), String> {
         MONITORING.store(true, Ordering::SeqCst);
-        
+
         let app_handle = app.clone();
         std::thread::spawn(move || {
             while MONITORING.load(Ordering::SeqCst) {
@@ -83,7 +104,7 @@ mod gui {
                 std::thread::sleep(std::time::Duration::from_secs(2));
             }
         });
-        
+
         Ok(())
     }
 
@@ -98,11 +119,13 @@ mod gui {
             .plugin(tauri_plugin_opener::init())
             .invoke_handler(tauri::generate_handler![
                 scan_networks,
+                scan_networks_with_scanner,
                 current_network,
                 get_network_groups,
                 get_scan_stats,
                 get_ie_details,
                 lookup_vendor,
+                list_available_scanners,
                 start_monitor,
                 stop_monitor,
             ])
@@ -112,10 +135,10 @@ mod gui {
 
     fn group_networks(networks: Vec<Network>) -> Vec<NetworkGroup> {
         let mut groups: std::collections::HashMap<String, NetworkGroup> = std::collections::HashMap::new();
-        
+
         for net in networks {
             let key = net.ssid.clone().unwrap_or_else(|| "[Hidden]".into());
-            
+
             let group = groups.entry(key.clone()).or_insert(NetworkGroup {
                 ssid: key,
                 networks: vec![],
@@ -125,28 +148,28 @@ mod gui {
                 supports_fast_roaming: false,
                 supports_bss_transition: false,
             });
-            
+
             group.networks.push(net.clone());
             group.total_aps += 1;
-            
+
             if !group.bands.contains(&net.band) {
                 group.bands.push(net.band.clone());
             }
-            
+
             if net.signal > group.best_signal {
                 group.best_signal = net.signal;
             }
-            
+
             if net.protocols.ft { group.supports_fast_roaming = true; }
             if net.protocols.bss_transition { group.supports_bss_transition = true; }
         }
-        
+
         groups.into_values().collect()
     }
 
     fn compute_stats(networks: Vec<Network>, duration_ms: u64) -> ScanStats {
         use std::collections::HashMap;
-        
+
         let mut stats = ScanStats {
             total_networks: networks.len() as u32,
             hidden_networks: 0,
@@ -156,24 +179,32 @@ mod gui {
             by_standard: HashMap::new(),
             scan_duration_ms: duration_ms,
         };
-        
+
         let mut seen_ssids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        
+
         for net in &networks {
             if net.is_hidden { stats.hidden_networks += 1; }
             if let Some(ref ssid) = net.ssid { seen_ssids.insert(ssid.clone()); }
-            
+
             *stats.by_band.entry(net.band.clone()).or_insert(0) += 1;
             *stats.by_security.entry(net.security.clone()).or_insert(0) += 1;
-            
+
             for std in &net.standards {
                 *stats.by_standard.entry(std.clone()).or_insert(0) += 1;
             }
         }
-        
+
         stats.network_groups = seen_ssids.len() as u32;
         stats
     }
+}
+
+/// Scanner info for GUI
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ScannerInfo {
+    pub name: String,
+    pub available: bool,
+    pub requires_root: bool,
 }
 
 #[cfg(feature = "gui")]

@@ -1,0 +1,19 @@
+[package]
+name = "scanner-wlanapi"
+version = "0.1.0"
+edition = "2021"
+description = "Windows WlanAPI scanner plugin"
+
+[dependencies]
+scanner-core = { path = "../scanner-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_NetworkManagement_WiFi",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_Ndis",
+] }
+
+[dev-dependencies]
