@@ -115,18 +115,22 @@ fn print_table(beacons: &[&RawBeacon], show_ie: bool) {
     println!("{:<32} {:<18} {:<4} {:<6} {:<8} {:<6}",
         "SSID", "BSSID", "Ch", "Band", "Signal", "Standard");
     println!("{}", "-".repeat(80));
-    
+
     for b in beacons {
         let ssid = b.ssid_string().unwrap_or("[Hidden]".into());
         let net = parse_beacon(b);
-        
+
+        // Show highest standard (last in the list)
+        let default_std = "?".to_string();
+        let highest_std = net.standards.last().unwrap_or(&default_std);
+
         println!("{:<32} {:<18} {:<4} {:<6} {:<4}dBm  {:<6}",
             truncate(&ssid, 32),
             b.bssid_string(),
             b.channel,
             b.band,
             b.signal_dbm,
-            net.standards.first().unwrap_or(&"?".into()),
+            highest_std,
         );
         
         if show_ie && !b.ie_data.is_empty() {
