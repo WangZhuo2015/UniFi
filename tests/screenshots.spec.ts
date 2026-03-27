@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('UI Screenshots', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('h1:has-text("UniFi")', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="title-bar"]', { timeout: 10000 });
   });
 
   test('main view screenshot', async ({ page }) => {
