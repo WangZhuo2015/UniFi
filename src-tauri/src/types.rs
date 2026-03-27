@@ -151,6 +151,8 @@ pub struct PerformanceFeatures {
     pub ampdu_length: u8,
     pub mlo: bool,
     pub max_qam: u16,
+    pub guard_interval: u16,  // in nanoseconds: 400, 800, 1600, 3200
+    pub mcs_index: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

@@ -79,6 +79,10 @@ export interface PerformanceFeatures {
   mlo: boolean;
   /** Max QAM modulation: 256, 1024, or 4096 */
   maxQam: number;
+  /** Guard Interval in nanoseconds: 400, 800, 1600, 3200 */
+  guardInterval: number;
+  /** MCS Index (for current connection) */
+  mcsIndex?: number;
 }
 
 /** BSS Load Information (802.11k) */

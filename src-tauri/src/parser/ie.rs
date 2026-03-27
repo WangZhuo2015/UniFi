@@ -239,9 +239,9 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 26 {
         return;
     }
-    
+
     let caps = u16::from_le_bytes([data[0], data[1]]);
-    
+
     // Count spatial streams from MCS set
     let mcs = &data[2..18];
     for i in 0..4 {
@@ -249,10 +249,20 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
             features.spatial_streams = (i + 1) as u8;
         }
     }
-    
+
     // TX beamforming
     features.tx_beamforming = (caps & 0x1000) != 0;
-    
+
+    // Guard Interval: bit 6 = Short GI for 20MHz, bit 7 = Short GI for 40MHz
+    // Short GI = 400ns, Long GI = 800ns
+    let short_gi_20 = (caps & 0x0040) != 0;
+    let short_gi_40 = (caps & 0x0080) != 0;
+    if short_gi_20 || short_gi_40 {
+        features.guard_interval = 400;
+    } else {
+        features.guard_interval = 800;
+    }
+
     // A-MPDU
     if data.len() >= 20 {
         let ampdu = data[18];
@@ -264,15 +274,20 @@ fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 12 {
         return;
     }
-    
+
     let caps = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    
+
     // MU-MIMO
     features.mu_mimo = (caps & 0x1000) != 0;
-    
+
     // Max MPDU length indicates 256-QAM support
     features.max_qam = 256;
-    
+
+    // Guard Interval: bits 2-4 = Maximum VHT GI
+    // 0 = long GI only (800ns), 1 = short GI (400ns)
+    let gi_bits = (caps >> 2) & 0x7;
+    features.guard_interval = if gi_bits > 0 { 400 } else { 800 };
+
     // Spatial streams from MCS set
     if data.len() >= 8 {
         let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
@@ -285,19 +300,23 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 7 {
         return;
     }
-    
+
     let phy_cap = u32::from_le_bytes([data[3], data[4], data[5], data[6]]);
-    
+
     // OFDMA
     features.ofdma = true;
     features.bss_coloring = true;
     features.max_qam = 1024;
-    
+
+    // HE supports multiple guard intervals: 0.8, 1.6, 3.2 us
+    // Default to 800ns, but HE typically supports all
+    features.guard_interval = 800;
+
     // 160MHz support
     if (phy_cap & 0x04) != 0 {
         // Supports 160MHz
     }
-    
+
     // Default spatial streams for WiFi 6
     if features.spatial_streams == 0 {
         features.spatial_streams = 2;
