@@ -1,4 +1,4 @@
-//! WiFi Tool CLI
+//! UniFi CLI
 //!
 //! Command-line interface for WiFi scanning.
 
@@ -10,7 +10,7 @@ use crate::scanner::{get_scanner, Scanner};
 use crate::parser::{parse_beacon, parse_all_ies};
 
 #[derive(Parser)]
-#[command(name = "wifi-tool")]
+#[command(name = "unifi")]
 #[command(about = "Professional WiFi analysis tool", long_about = None)]
 struct Cli {
     #[command(subcommand)]

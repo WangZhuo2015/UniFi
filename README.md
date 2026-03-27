@@ -1,4 +1,4 @@
-# WiFi Tool
+# UniFi
 
 <div align="center">
 
@@ -75,9 +75,9 @@ cd src-tauri
 cargo build --features cli --release
 
 # Usage
-./target/release/wifi-tool-cli scan
-./target/release/wifi-tool-cli current
-./target/release/wifi-tool-cli info AA:BB:CC:DD:EE:FF
+./target/release/unifi-cli scan
+./target/release/unifi-cli current
+./target/release/unifi-cli info AA:BB:CC:DD:EE:FF
 ```
 
 ## Platform Support
@@ -99,7 +99,7 @@ cargo build --features cli --release
 ## Project Structure
 
 ```
-wifi-tool/
+unifi/
 ├── src/                    # Svelte frontend
 │   ├── lib/
 │   │   ├── components/     # UI components

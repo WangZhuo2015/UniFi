@@ -1,4 +1,4 @@
-//! WiFi Tool - Core Type Definitions
+//! UniFi - Core Type Definitions
 //!
 //! Data structures define the code. Keep them simple and clear.
 

@@ -1,4 +1,4 @@
-//! WiFi Tool - Multi-platform WiFi Analysis
+//! UniFi - Multi-platform WiFi Analysis
 //!
 //! Supports GUI (Tauri) and CLI modes.
 

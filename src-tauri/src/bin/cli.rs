@@ -1,5 +1,5 @@
-//! WiFi Tool CLI Entry Point
+//! UniFi CLI Entry Point
 
 fn main() {
-    wifi_tool_lib::cli::run();
+    unifi_lib::cli::run();
 }
