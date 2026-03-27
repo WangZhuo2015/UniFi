@@ -7,7 +7,6 @@ mod scanner;
 mod parser;
 mod vendor;
 
-#[cfg(feature = "cli")]
 pub mod cli;
 
 pub use types::*;
@@ -22,7 +21,7 @@ mod gui {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tauri::Emitter;
-    use scanner::{Scanner, get_scanner};
+    use scanner::get_scanner;
     use parser::{parse_beacon, parse_all_ies};
 
     static MONITORING: AtomicBool = AtomicBool::new(false);
