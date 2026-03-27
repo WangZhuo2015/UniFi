@@ -6,11 +6,13 @@ mod types;
 mod scanner;
 mod parser;
 mod vendor;
+pub mod roaming;
 
 pub mod cli;
 
 pub use types::*;
 pub use scanner::{get_scanner, get_scanner_with_mode, list_scanners, ScannerMode};
+pub use roaming::{RoamingMonitor, RoamingTestConfig, RoamingTestResult, PingConfig};
 
 // ============================================================================
 // GUI Mode (Tauri)
@@ -20,11 +22,18 @@ pub use scanner::{get_scanner, get_scanner_with_mode, list_scanners, ScannerMode
 mod gui {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex as StdMutex;
     use tauri::Emitter;
     use scanner::{get_scanner, ScannerMode};
     use parser::{parse_beacon, parse_all_ies};
+    use roaming::{RoamingMonitor, RoamingTestConfig, PingConfig};
 
     static MONITORING: AtomicBool = AtomicBool::new(false);
+    static ROAMING_MONITOR: std::sync::OnceLock<StdMutex<RoamingMonitor>> = std::sync::OnceLock::new();
+
+    fn get_roaming_monitor() -> &'static StdMutex<RoamingMonitor> {
+        ROAMING_MONITOR.get_or_init(|| StdMutex::new(RoamingMonitor::default()))
+    }
 
     #[tauri::command]
     pub fn scan_networks() -> Result<Vec<Network>, String> {
@@ -114,6 +123,58 @@ mod gui {
         Ok(())
     }
 
+    // ========================================================================
+    // Roaming Test Commands
+    // ========================================================================
+
+    #[tauri::command]
+    pub fn start_roaming_test(
+        target: String,
+        duration_secs: u64,
+        interval_ms: u64,
+    ) -> Result<(), String> {
+        let config = RoamingTestConfig {
+            ping: PingConfig {
+                target,
+                interval_ms,
+                timeout_ms: 1000,
+                packet_size: 64,
+            },
+            duration_secs,
+            ..Default::default()
+        };
+
+        let monitor = get_roaming_monitor();
+        let mut monitor = monitor.lock().map_err(|e| e.to_string())?;
+
+        // Update with new config
+        *monitor = RoamingMonitor::new(config);
+        monitor.start()
+    }
+
+    #[tauri::command]
+    pub fn stop_roaming_test() -> Result<RoamingTestResult, String> {
+        let monitor = get_roaming_monitor();
+        let monitor = monitor.lock().map_err(|e| e.to_string())?;
+        Ok(monitor.stop())
+    }
+
+    #[tauri::command]
+    pub fn get_roaming_test_status() -> Result<(bool, u32, u32), String> {
+        let monitor = get_roaming_monitor();
+        let monitor = monitor.lock().map_err(|e| e.to_string())?;
+        let running = monitor.is_running();
+        let (current, total) = monitor.get_progress();
+        Ok((running, current, total))
+    }
+
+    #[tauri::command]
+    pub fn get_roaming_test_results() -> Result<RoamingTestResult, String> {
+        let monitor = get_roaming_monitor();
+        let monitor = monitor.lock().map_err(|e| e.to_string())?;
+        Ok(monitor.get_results())
+    }
+
     pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
@@ -128,6 +189,10 @@ mod gui {
                 list_available_scanners,
                 start_monitor,
                 stop_monitor,
+                start_roaming_test,
+                stop_roaming_test,
+                get_roaming_test_status,
+                get_roaming_test_results,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

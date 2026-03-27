@@ -192,6 +192,32 @@ test.describe('Network Groups View', () => {
   });
 });
 
+test.describe('Roaming Test View', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="title-bar"]', { timeout: 10000 });
+  });
+
+  test('should switch to roaming test view', async ({ page }) => {
+    await page.getByRole('button', { name: '漫游测试' }).click();
+    await page.waitForTimeout(500);
+
+    // Check for roaming test content (heading)
+    await expect(page.getByRole('heading', { name: '漫游测试' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '开始测试' })).toBeVisible();
+  });
+
+  test('should display configuration inputs', async ({ page }) => {
+    await page.getByRole('button', { name: '漫游测试' }).click();
+    await page.waitForTimeout(500);
+
+    // Check for configuration inputs
+    await expect(page.locator('text=目标地址')).toBeVisible();
+    await expect(page.locator('text=测试时长')).toBeVisible();
+    await expect(page.locator('text=Ping间隔')).toBeVisible();
+  });
+});
+
 test.describe('Dark Mode Support', () => {
   test('should support dark mode classes', async ({ page }) => {
     await page.goto('/');

@@ -10,11 +10,12 @@
   import IEDetailsPanel from '$lib/components/IEDetailsPanel.svelte';
   import ChannelView from '$lib/components/ChannelView.svelte';
   import TitleBar from '$lib/components/TitleBar.svelte';
+  import RoamingTest from '$lib/components/RoamingTest.svelte';
   import Button from '$lib/components/ui/button.svelte';
 
   let filterText = $state('');
   let activeBand = $state<'all' | '2.4' | '5' | '6'>('all');
-  let activeTab = $state<'networks' | 'channels' | 'groups'>('networks');
+  let activeTab = $state<'networks' | 'channels' | 'groups' | 'roaming'>('networks');
   let showIEDetails = $state(false);
   let showExportMenu = $state(false);
 
@@ -104,6 +105,10 @@
             class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'groups' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
             onclick={() => activeTab = 'groups'}
           >网络分组</button>
+          <button
+            class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'roaming' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
+            onclick={() => activeTab = 'roaming'}
+          >漫游测试</button>
         </div>
       </div>
       <div class="flex items-center gap-2">
@@ -566,6 +571,12 @@
             {/each}
           </div>
         {/if}
+      </div>
+
+    {:else if activeTab === 'roaming'}
+      <!-- Roaming Test View -->
+      <div class="flex-1 overflow-y-auto bg-gray-50/30 dark:bg-gray-800/30">
+        <RoamingTest />
       </div>
     {/if}
   </div>
