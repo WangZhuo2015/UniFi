@@ -11,6 +11,7 @@ vite.config.ts.timestamp-*
 
 # Tauri
 src-tauri/target
+/target/
 
 # Rust
 *.rs.bk

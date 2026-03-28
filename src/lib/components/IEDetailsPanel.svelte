@@ -11,6 +11,7 @@
   let loading = false;
   let error = '';
   let selectedIE: ParsedIE | null = null;
+  let loadedBssid = '';
 
   function handleBackdropKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
@@ -24,6 +25,7 @@
   }
 
   function loadDetails(bssid: string) {
+    loadedBssid = bssid;
     loading = true;
     error = '';
     ieDetails = null;
@@ -43,7 +45,9 @@
   }
 
   $: if (network?.bssid) {
-    loadDetails(network.bssid);
+    if (network.bssid !== loadedBssid) {
+      loadDetails(network.bssid);
+    }
   }
 
   function getIEColor(elementId: number): string {

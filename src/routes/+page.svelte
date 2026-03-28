@@ -275,9 +275,9 @@
         </div>
       </div>
 
-      <div class="flex-1 overflow-y-auto bg-white dark:bg-gray-900">
+      <div class="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-gray-900">
         {#if $selectedNetwork}
-          <div class="mx-auto max-w-4xl p-5">
+          <div class="mx-auto min-w-0 max-w-4xl p-5">
             <div class="mb-5 border-b border-gray-200/50 pb-4 dark:border-gray-700/50">
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -336,12 +336,12 @@
               <section>
                 <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'networkInfo')}</h3>
                 <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'band')}</span><span class="font-medium">{$selectedNetwork.band} GHz · CH {$selectedNetwork.channel}</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'channelWidth')}</span><span class="font-medium">{$selectedNetwork.channelWidth} MHz</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'frequency')}</span><span class="font-medium">{$selectedNetwork.frequency} MHz</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'beaconInterval')}</span><span class="font-medium">{$selectedNetwork.beaconInterval} ms</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'country')}</span><span class="font-medium">{detailValue($selectedNetwork.countryCode)}</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'wps')}</span><span class="font-medium">{$selectedNetwork.wpsEnabled ? t($locale, 'enabled') : t($locale, 'disabled')}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'band')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.band} GHz · CH {$selectedNetwork.channel}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'channelWidth')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.channelWidth} MHz</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'frequency')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.frequency} MHz</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'beaconInterval')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.beaconInterval} ms</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'country')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{detailValue($selectedNetwork.countryCode)}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'wps')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.wpsEnabled ? t($locale, 'enabled') : t($locale, 'disabled')}</span></div>
                 </div>
               </section>
 
@@ -355,9 +355,9 @@
                   {/each}
                 </div>
                 <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'spatialStreams')}</span><span class="font-medium">{$selectedNetwork.features?.spatialStreams ?? 1}</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'maxRate')}</span><span class="font-medium">{formatRate($selectedNetwork.maxDataRate)}</span></div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'guardInterval')}</span><span class="font-medium">{$selectedNetwork.features?.guardInterval ? `${$selectedNetwork.features.guardInterval} ns` : '-'}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'spatialStreams')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.features?.spatialStreams ?? 1}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'maxRate')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{formatRate($selectedNetwork.maxDataRate)}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'guardInterval')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.features?.guardInterval ? `${$selectedNetwork.features.guardInterval} ns` : '-'}</span></div>
                 </div>
               </section>
             </div>
@@ -373,8 +373,8 @@
                     ['TXBF', $selectedNetwork.features.txBeamforming]
                   ] as [label, enabled]}
                     <div class="flex items-center justify-between rounded-xl border border-gray-200/50 bg-gray-50 px-4 py-3 dark:border-gray-700/50 dark:bg-gray-800/50">
-                      <span class="text-sm">{label}</span>
-                      <span class={cn('rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
+                      <span class="min-w-0 pr-2 text-sm [overflow-wrap:anywhere]">{label}</span>
+                      <span class={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
                         {enabled ? t($locale, 'supported') : t($locale, 'unsupported')}
                       </span>
                     </div>
@@ -392,8 +392,8 @@
                     ['802.11w (PMF)', $selectedNetwork.protocols.pmf]
                   ] as [label, enabled]}
                     <div class="flex items-center justify-between rounded-xl border border-gray-200/50 bg-gray-50 px-4 py-3 dark:border-gray-700/50 dark:bg-gray-800/50">
-                      <span class="text-sm">{label}</span>
-                      <span class={cn('rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
+                      <span class="min-w-0 pr-2 text-sm [overflow-wrap:anywhere]">{label}</span>
+                      <span class={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
                         {enabled ? t($locale, 'supported') : t($locale, 'unsupported')}
                       </span>
                     </div>
@@ -405,10 +405,10 @@
             <section class="mb-6">
               <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'securityInfo')}</h3>
               <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
-                <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'securityType')}</span><span class="font-medium">{$selectedNetwork.security === 'open' ? t($locale, 'openSecurity') : $selectedNetwork.security.toUpperCase()}</span></div>
-                <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'authMethod')}</span><span class="font-medium">{$selectedNetwork.securityDetails.authMethod}</span></div>
-                <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">{t($locale, 'encryption')}</span><span class="font-medium">{$selectedNetwork.securityDetails.cipher}</span></div>
-                <div class="flex justify-between px-4 py-2.5 text-sm"><span class="text-gray-500 dark:text-gray-400">PMF</span><span class="font-medium">{$selectedNetwork.securityDetails.pmfCapable ? t($locale, 'supported') : t($locale, 'unsupported')}{#if $selectedNetwork.securityDetails.pmfRequired}<span class="ml-1 text-blue-500">({t($locale, 'required')})</span>{/if}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'securityType')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.security === 'open' ? t($locale, 'openSecurity') : $selectedNetwork.security.toUpperCase()}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'authMethod')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.authMethod}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'encryption')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.cipher}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">PMF</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.pmfCapable ? t($locale, 'supported') : t($locale, 'unsupported')}{#if $selectedNetwork.securityDetails.pmfRequired}<span class="ml-1 text-blue-500">({t($locale, 'required')})</span>{/if}</span></div>
               </div>
             </section>
 
