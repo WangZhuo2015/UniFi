@@ -176,6 +176,7 @@ fn parse_network_dict(dict: &plist::Dictionary, now: u64) -> Result<RawBeacon, S
         ie_data,
         beacon_interval,
         timestamp: now,
+        uptime_ms: None,
         connected: false,
     })
 }
@@ -236,6 +237,7 @@ fn parse_current_info(output: &str) -> Option<RawBeacon> {
         ie_data: vec![],
         beacon_interval: 100,
         timestamp: now,
+        uptime_ms: None,
         connected: true,
     })
 }
@@ -273,6 +275,7 @@ impl CurrentNetworkInfo {
             ie_data: vec![],
             beacon_interval: 100,
             timestamp: now,
+            uptime_ms: None,
             connected: true,
         }
     }

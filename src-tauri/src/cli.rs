@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use std::time::Instant;
 
 use crate::types::*;
-use crate::scanner::{get_scanner_with_mode, list_scanners, ScannerMode};
+use crate::scanner::{get_scanner_with_mode, parse_scanner_mode};
 use crate::parser::{parse_beacon, parse_all_ies};
 
 #[derive(Parser)]
@@ -88,15 +88,6 @@ pub fn run() {
         Commands::Scanners { verbose } => {
             cmd_scanners(verbose);
         }
-    }
-}
-
-fn parse_scanner_mode(name: &str) -> ScannerMode {
-    match name.to_lowercase().as_str() {
-        "corewlan" => ScannerMode::CoreWLAN,
-        "airport" => ScannerMode::Airport,
-        "libpcap" => ScannerMode::Libpcap,
-        _ => ScannerMode::Default,
     }
 }
 

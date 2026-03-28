@@ -1,185 +1,70 @@
-<script lang="ts">
-  import { cn, signalColor, securityIcon, securityColor, bandColor } from '$lib/utils';
+﻿<script lang="ts">
+  import { locale, t } from '$lib/i18n';
   import { selectedBssid } from '$lib/stores';
   import type { Network } from '$lib/types';
+  import { bandColor, cn, formatStandards, securityColor, signalBars, signalColor } from '$lib/utils';
 
-  interface Props {
-    network: Network;
+  export let network: Network;
+
+  function selectNetwork() {
+    selectedBssid.set(network.bssid);
   }
-
-  let { network }: Props = $props();
-
-  function select() {
-    $selectedBssid = network.bssid;
-  }
-
-  // WiFi generation
-  const wifiGen = $derived.by(() => {
-    if (network.standards?.includes('be')) return { name: 'WiFi 7', color: 'bg-gradient-to-r from-amber-400 to-orange-500 text-white' };
-    if (network.standards?.includes('ax')) return { name: 'WiFi 6', color: 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white' };
-    if (network.standards?.includes('ac')) return { name: 'WiFi 5', color: 'bg-gradient-to-r from-blue-400 to-cyan-500 text-white' };
-    if (network.standards?.includes('n')) return { name: 'WiFi 4', color: 'bg-gray-500 text-white' };
-    return null;
-  });
-
-  // QAM label
-  const qamLabel = $derived.by(() => {
-    const qam = network.features?.maxQam ?? 256;
-    if (qam >= 4096) return { name: '4K-QAM', color: 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white' };
-    if (qam >= 1024) return { name: '1K-QAM', color: 'bg-purple-500 text-white' };
-    return null;
-  });
-
-  // Signal quality percentage
-  const signalQuality = $derived(Math.round(Math.min(100, Math.max(0, (network.signal + 90) * (100 / 60)))));
 </script>
 
 <button
-  data-testid="network-card"
-  data-bssid={network.bssid}
-  data-ssid={network.ssid ?? ''}
-  class={cn(
-    'w-full p-3 rounded-xl transition-all duration-200 native-button',
-    'bg-white dark:bg-gray-800/80 text-gray-900 dark:text-gray-100',
-    'border border-gray-200/50 dark:border-gray-700/50',
-    'hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600',
-    $selectedBssid === network.bssid
-      ? 'ring-2 ring-blue-500/50 border-blue-500/50 shadow-md'
-      : ''
-  )}
-  onclick={select}
+  type="button"
+  class="w-full text-left rounded-xl border border-gray-200/70 bg-white/90 p-3 shadow-sm transition hover:border-blue-400/70 hover:shadow-md dark:border-gray-700/60 dark:bg-gray-800/80"
+  onclick={selectNetwork}
 >
-  <!-- Header Row: SSID + Signal -->
-  <div class="flex items-center justify-between gap-3">
-    <div class="flex items-center gap-2 min-w-0">
-      <span class="text-base shrink-0">{securityIcon(network.security)}</span>
-      <span data-testid="ssid" class="font-semibold truncate text-sm">
-        {network.ssid ?? '[隐藏网络]'}
-      </span>
-      {#if network.wpsEnabled}
-        <span class="text-[10px] px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-300 rounded-md font-medium shrink-0">WPS</span>
-      {/if}
-    </div>
-    <div class="flex items-center gap-2 shrink-0">
-      <div class="flex items-center gap-0.5">
-        {#each Array(4) as _, i}
-          <div class={cn(
-            'w-1 rounded-sm transition-colors duration-200',
-            i < Math.round(signalQuality / 25) ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700',
-            i === 0 ? 'h-1' : i === 1 ? 'h-1.5' : i === 2 ? 'h-2' : 'h-2.5'
-          )}></div>
-        {/each}
+  <div class="flex items-start justify-between gap-3">
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2">
+        <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+          {network.ssid ?? t($locale, 'hiddenNetwork')}
+        </h3>
+        {#if network.connected}
+          <span class="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+            {t($locale, 'connectedTo')}
+          </span>
+        {/if}
       </div>
-      <span class={cn('font-mono font-bold text-sm tabular-nums', signalColor(network.signal))}>
-        {network.signal}
-      </span>
+      <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+        <span class="font-mono">{network.bssid.toUpperCase()}</span>
+        <span>CH {network.channel}</span>
+        <span>{network.frequency} MHz</span>
+        <span>{network.vendor || t($locale, 'unknownVendor')}</span>
+      </div>
+    </div>
+    <div class="text-right">
+      <div class={cn('text-lg font-bold tabular-nums', signalColor(network.signal))}>{network.signal}</div>
+      <div class="text-[11px] text-gray-500 dark:text-gray-400">dBm</div>
     </div>
   </div>
 
-  <!-- Info Row -->
-  <div class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5 flex-wrap">
-    <span class="font-mono">{network.bssid.toUpperCase()}</span>
-    <span class="text-gray-300 dark:text-gray-600">·</span>
-    <span>CH {network.channel}</span>
-    <span class="text-gray-300 dark:text-gray-600">·</span>
-    <span>{network.channelWidth}MHz</span>
-    {#if network.vendor}
-      <span class="text-gray-300 dark:text-gray-600">·</span>
-      <span class="text-gray-500 dark:text-gray-400">{network.vendor}</span>
-    {/if}
-  </div>
-
-  <!-- Key Feature Labels -->
-  <div class="mt-2 flex flex-wrap gap-1">
-    <!-- Band -->
-    <span class={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold', bandColor(network.band))}>
-      {network.band}GHz
-    </span>
-    <!-- WiFi Generation -->
-    {#if wifiGen}
-      <span class={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold shadow-sm', wifiGen.color)}>
-        {wifiGen.name}
-      </span>
-    {/if}
-    <!-- Security -->
-    <span class={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold', securityColor(network.security))}>
-      {network.security.toUpperCase()}
-    </span>
-    <!-- MLO -->
-    {#if network.features?.mlo}
-      <span class="text-[10px] px-2 py-0.5 rounded-md font-semibold bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-sm">
-        MLO
-      </span>
-    {/if}
-    <!-- QAM -->
-    {#if qamLabel}
-      <span class={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold shadow-sm', qamLabel.color)}>
-        {qamLabel.name}
-      </span>
-    {/if}
-  </div>
-
-  <!-- Protocol Extensions -->
-  {#if network.protocols?.rrm || network.protocols?.ft || network.protocols?.bssTransition || network.protocols?.pmf}
-    <div class="mt-1.5 flex flex-wrap gap-1">
-      {#if network.protocols?.rrm}
-        <span class="text-[9px] px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 font-medium">
-          802.11k
-        </span>
-      {/if}
-      {#if network.protocols?.ft}
-        <span class="text-[9px] px-1.5 py-0.5 rounded bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 font-medium">
-          802.11r
-        </span>
-      {/if}
-      {#if network.protocols?.bssTransition}
-        <span class="text-[9px] px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300 font-medium">
-          802.11v
-        </span>
-      {/if}
-      {#if network.protocols?.pmf}
-        <span class="text-[9px] px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-300 font-medium">
-          802.11w
-        </span>
-      {/if}
+  <div class="mt-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-1.5">
+      {#each Array.from({ length: 4 }) as _, index}
+        <span
+          class={cn(
+            'block w-1.5 rounded-sm bg-gray-200 dark:bg-gray-700',
+            index < signalBars(network.signal) && 'bg-blue-500'
+          )}
+          style={`height:${8 + index * 3}px`}
+        ></span>
+      {/each}
     </div>
-  {/if}
 
-  <!-- BSS Load -->
-  {#if network.bssLoad}
-    <div class="mt-2 text-[11px] flex items-center gap-3 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg px-2.5 py-1.5">
-      <span class="flex items-center gap-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-        利用率: {((network.bssLoad.channelUtilization / 255) * 100).toFixed(0)}%
+    <div class="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
+      <span class={cn('rounded-full px-2 py-0.5 font-medium', bandColor(network.band))}>{network.band} GHz</span>
+      <span class={cn('rounded-full px-2 py-0.5 font-medium', securityColor(network.security))}>
+        {network.security === 'open' ? t($locale, 'openSecurity') : network.security.toUpperCase()}
       </span>
-      <span class="flex items-center gap-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-        设备: {network.bssLoad.stationCount}
-      </span>
-    </div>
-  {/if}
-
-  <!-- Performance Stats -->
-  <div class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50 text-[10px] text-gray-400 dark:text-gray-500 flex items-center justify-between">
-    <div class="flex gap-3">
-      <span class="flex items-center gap-1">
-        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-        <span class="tabular-nums">{network.features?.maxDataRate ?? 0}</span> Mbps
-      </span>
-      <span>{network.features?.spatialStreams ?? 1} 流</span>
-      {#if network.snr > 0}
-        <span>SNR: <span class="tabular-nums">{network.snr}</span></span>
-      {/if}
-    </div>
-    <div class="flex gap-1">
-      {#if network.features?.muMimo}
-        <span class="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">MU-MIMO</span>
-      {/if}
-      {#if network.features?.ofdma}
-        <span class="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">OFDMA</span>
+      {#if network.standards.length > 0}
+        <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+          {formatStandards(network.standards)}
+        </span>
       {/if}
     </div>
   </div>
 </button>
+

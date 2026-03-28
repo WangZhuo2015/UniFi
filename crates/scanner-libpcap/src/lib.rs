@@ -4,7 +4,7 @@
 //! Requires monitor mode and root/admin privileges.
 //! Provides complete IE data including WiFi 6/7 information.
 
-use scanner_core::{Platform, RawBeacon, ScanError, Scanner, ScannerCapabilities, SecurityType, VendorIE};
+use scanner_core::{Platform, RawBeacon, ScanError, Scanner, ScannerCapabilities};
 
 /// Libpcap beacon scanner
 pub struct LibpcapScanner {

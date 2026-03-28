@@ -57,6 +57,7 @@ pub struct RawBeacon {
     pub ie_data: Vec<u8>,
     pub beacon_interval: u16,
     pub timestamp: u64,
+    pub uptime_ms: Option<u64>,
     pub connected: bool,
 }
 
@@ -98,7 +99,18 @@ pub struct ParsedIE {
     pub name: String,
     pub length: u8,
     pub data_hex: String,
+    pub summary: String,
+    pub vendor_name: Option<String>,
+    pub display_fields: Vec<ParsedField>,
     pub parsed: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedField {
+    pub label: String,
+    pub value: String,
+    pub highlighted: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -205,10 +217,13 @@ pub struct Network {
     pub band: String,
     pub connected: bool,
     pub standards: Vec<String>,
+    pub wifi_generation: u8,
     pub channel_width: u16,
     pub center_channel: Option<u16>,
     pub secondary_channel: Option<u16>,
     pub features: PerformanceFeatures,
+    pub min_data_rate: f32,
+    pub max_data_rate: f32,
     pub security: String,
     pub security_details: SecurityDetails,
     pub protocols: ProtocolExtensions,
@@ -224,6 +239,8 @@ pub struct Network {
     pub beacon_interval: u16,
     pub first_seen: u64,
     pub last_seen: u64,
+    pub seen_age_secs: u64,
+    pub ap_uptime_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -63,11 +63,46 @@ pub fn get_scanner() -> Box<dyn Scanner> {
     get_scanner_with_mode(ScannerMode::Default)
 }
 
-/// Get scanner with specific mode.
-pub fn get_scanner_with_mode(mode: ScannerMode) -> Box<dyn Scanner> {
+/// Parse a scanner name into the current platform's supported scanner mode.
+pub fn parse_scanner_mode(name: &str) -> ScannerMode {
+    let normalized = name.trim().to_ascii_lowercase();
+
     #[cfg(target_os = "macos")]
     {
-        match mode {
+        match normalized.as_str() {
+            "corewlan" => ScannerMode::CoreWLAN,
+            "airport" => ScannerMode::Airport,
+            "libpcap" => ScannerMode::Libpcap,
+            _ => ScannerMode::Default,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match normalized.as_str() {
+            "libpcap" => ScannerMode::Libpcap,
+            _ => ScannerMode::Default,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = normalized;
+        ScannerMode::Default
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        let _ = normalized;
+        ScannerMode::Default
+    }
+}
+
+/// Get scanner with specific mode.
+pub fn get_scanner_with_mode(_mode: ScannerMode) -> Box<dyn Scanner> {
+    #[cfg(target_os = "macos")]
+    {
+        match _mode {
             ScannerMode::Default => {
                 // Prefer Airport for full IE data, fall back to CoreWLAN
                 let airport = airport::AirportScanner::new();
@@ -88,7 +123,7 @@ pub fn get_scanner_with_mode(mode: ScannerMode) -> Box<dyn Scanner> {
 
     #[cfg(target_os = "linux")]
     {
-        match mode {
+        match _mode {
             ScannerMode::Default => Box::new(nl80211::Nl80211Scanner::new()),
             ScannerMode::Libpcap => Box::new(libpcap::LibpcapScanner::new()),
             _ => Box::new(nl80211::Nl80211Scanner::new()),

@@ -27,22 +27,36 @@ impl WlanApiScanner {
     
     #[cfg(target_os = "windows")]
     fn do_scan(&self) -> Result<Vec<RawBeacon>, ScanError> {
-        use windows::Win32::NetworkManagement::WiFi::*;
         use windows::Win32::Foundation::*;
+        use windows::Win32::NetworkManagement::WiFi::*;
+
+        fn check_wlan_result(status: u32, context: &str) -> Result<(), ScanError> {
+            if status == ERROR_SUCCESS.0 {
+                Ok(())
+            } else {
+                Err(ScanError::System(format!(
+                    "{context} failed with Win32 error {status}"
+                )))
+            }
+        }
         
         unsafe {
             // Open WLAN handle
             let mut client_handle: HANDLE = HANDLE::default();
             let mut negotiated_version: u32 = 0;
             
-            WlanOpenHandle(2, None, &mut negotiated_version, &mut client_handle)
-                .map_err(|e| ScanError::System(format!("WlanOpenHandle failed: {}", e)))?;
+            check_wlan_result(
+                WlanOpenHandle(2, None, &mut negotiated_version, &mut client_handle),
+                "WlanOpenHandle",
+            )?;
             
             // Get list of interfaces
             let mut interface_list: *mut WLAN_INTERFACE_INFO_LIST = std::ptr::null_mut();
             
-            WlanEnumInterfaces(client_handle, None, &mut interface_list)
-                .map_err(|e| ScanError::System(format!("WlanEnumInterfaces failed: {}", e)))?;
+            check_wlan_result(
+                WlanEnumInterfaces(client_handle, None, &mut interface_list),
+                "WlanEnumInterfaces",
+            )?;
             
             if interface_list.is_null() {
                 let _ = WlanCloseHandle(client_handle, None);
@@ -56,18 +70,26 @@ impl WlanApiScanner {
                 let interface = &interfaces.InterfaceInfo[i as usize];
                 
                 // Scan for networks
-                WlanScan(client_handle, &interface.InterfaceGuid, None, None, None).ok();
+                let _ = check_wlan_result(
+                    WlanScan(client_handle, &interface.InterfaceGuid, None, None, None),
+                    "WlanScan",
+                );
                 
                 // Get available networks
                 let mut network_list: *mut WLAN_AVAILABLE_NETWORK_LIST = std::ptr::null_mut();
                 
-                if WlanGetAvailableNetworkList(
-                    client_handle,
-                    &interface.InterfaceGuid,
-                    WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
-                    None,
-                    &mut network_list,
-                ).is_ok() && !network_list.is_null() 
+                if check_wlan_result(
+                    WlanGetAvailableNetworkList(
+                        client_handle,
+                        &interface.InterfaceGuid,
+                        WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
+                        None,
+                        &mut network_list,
+                    ),
+                    "WlanGetAvailableNetworkList",
+                )
+                .is_ok()
+                    && !network_list.is_null()
                 {
                     let networks = &*network_list;
                     

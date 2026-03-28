@@ -19,7 +19,16 @@ export interface ParsedIE {
   name: string;
   length: number;
   dataHex: string;
+  summary: string;
+  vendorName?: string;
+  displayFields: ParsedField[];
   parsed: Record<string, string | number | boolean>;
+}
+
+export interface ParsedField {
+  label: string;
+  value: string;
+  highlighted: boolean;
 }
 
 /** WiFi detection summary */
@@ -130,10 +139,13 @@ export interface Network {
 
   // === WiFi Standard & Performance ===
   standards: WiFiStandard[];
+  wifiGeneration: number;
   channelWidth: ChannelWidth;
   centerChannel?: number;
   secondaryChannel?: number;
   features: PerformanceFeatures;
+  minDataRate: number;
+  maxDataRate: number;
 
   // === Security ===
   security: Security;
@@ -169,6 +181,8 @@ export interface Network {
   beaconInterval: number;  // ms
   firstSeen: number;       // timestamp
   lastSeen: number;        // timestamp
+  seenAgeSecs: number;
+  apUptimeSecs?: number;
 }
 
 /** Network Group - same SSID networks grouped together */
