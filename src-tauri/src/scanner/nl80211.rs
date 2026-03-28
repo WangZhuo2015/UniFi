@@ -158,6 +158,7 @@ fn current_with_iwlink(iface: &str) -> Result<Option<RawBeacon>, ScanError> {
     let mut beacon = RawBeacon {
         timestamp: now,
         connected: true,
+        link_rates: None,
         ..Default::default()
     };
     

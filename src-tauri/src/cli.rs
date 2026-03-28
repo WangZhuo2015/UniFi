@@ -194,6 +194,30 @@ fn cmd_current(scanner_name: &str) {
             println!("Signal:       {} dBm", b.signal_dbm);
             println!("Standard:     {:?}", net.standards);
             println!("Security:     {}", net.security);
+            println!("AP Streams:   {}", net.features.spatial_streams);
+            println!("Current Width: {} MHz", net.channel_width);
+            println!("AP Max Width: {} MHz", net.features.max_supported_width);
+            println!("AP Current Peak: {} Mbps", net.max_data_rate);
+            println!("AP Max Peak:     {} Mbps", net.ap_peak_data_rate);
+            if let Some(client_peak) = net.client_peak_data_rate {
+                println!("Local Peak:      {} Mbps", client_peak);
+            }
+            if let Some(client_streams) = net.client_spatial_streams {
+                println!("Local Streams:   {}", client_streams);
+            }
+            if let Some(local_adapter) = &net.local_adapter {
+                println!("Local Max Width: {} MHz", local_adapter.max_supported_width);
+                println!("Local Standards: {:?}", local_adapter.supported_standards);
+                println!("Local Adapter:   {}", local_adapter.driver_name);
+            }
+            if let Some(link_rates) = &net.link_rates {
+                if let Some(rx_rate) = link_rates.rx_rate_mbps {
+                    println!("Link RX:      {:.1} Mbps", rx_rate);
+                }
+                if let Some(tx_rate) = link_rates.tx_rate_mbps {
+                    println!("Link TX:      {:.1} Mbps", tx_rate);
+                }
+            }
         }
         Ok(None) => {
             println!("Not connected to any network");
@@ -234,8 +258,21 @@ fn cmd_info(bssid: &str, scanner_name: &str) {
             println!("=== WiFi Standard ===");
             println!("Standards:    {:?}", net.standards);
             println!("Channel Width: {} MHz", net.channel_width);
-            println!("Spatial Streams: {}", net.features.spatial_streams);
-            println!("Max Rate:     {} Mbps", net.features.max_data_rate);
+            println!("Max Width:    {} MHz", net.features.max_supported_width);
+            println!("AP Streams:   {}", net.features.spatial_streams);
+            println!("AP Current Peak: {} Mbps", net.max_data_rate);
+            println!("AP Max Peak:     {} Mbps", net.ap_peak_data_rate);
+            if let Some(client_peak) = net.client_peak_data_rate {
+                println!("Local Peak:      {} Mbps", client_peak);
+            }
+            if let Some(client_streams) = net.client_spatial_streams {
+                println!("Local Streams:   {}", client_streams);
+            }
+            if let Some(local_adapter) = &net.local_adapter {
+                println!("Local Max Width: {} MHz", local_adapter.max_supported_width);
+                println!("Local Standards: {:?}", local_adapter.supported_standards);
+                println!("Local Adapter:   {}", local_adapter.driver_name);
+            }
             println!();
             println!("=== Features ===");
             println!("MU-MIMO:      {}", net.features.mu_mimo);

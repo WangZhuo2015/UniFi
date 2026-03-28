@@ -12,6 +12,10 @@ vite.config.ts.timestamp-*
 # Tauri
 src-tauri/target
 /target/
+tmp-oui.csv
+tmp-cid.csv
+tmp-oui36.csv
+tmp-mam.csv
 
 # Rust
 *.rs.bk
@@ -28,3 +32,5 @@ Cargo.lock
 *.log
 beacon_frames_full.json
 wifi_scan_ie_data.json
+test-results/
+playwright-report/

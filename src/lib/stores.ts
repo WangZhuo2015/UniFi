@@ -1,7 +1,7 @@
 // UniFi - State Management
 // Svelte stores, simple and direct
 
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Network, NetworkGroup, ScanStats, SignalPoint } from './types';
@@ -46,6 +46,69 @@ export const byBand = derived(networks, ($networks) => ({
   '5': $networks.filter(n => n.band === '5'),
   '6': $networks.filter(n => n.band === '6'),
 }));
+
+function buildNetworkGroups(input: Network[]): NetworkGroup[] {
+  const groups = new Map<string, NetworkGroup>();
+
+  for (const net of input) {
+    const key = net.ssid ?? '[Hidden]';
+    const existing = groups.get(key) ?? {
+      ssid: key,
+      networks: [],
+      totalAps: 0,
+      bands: [],
+      bestSignal: -100,
+      supportsFastRoaming: false,
+      supportsBssTransition: false,
+    };
+
+    existing.networks.push(net);
+    existing.totalAps += 1;
+    if (!existing.bands.includes(net.band)) {
+      existing.bands.push(net.band);
+    }
+    existing.bestSignal = Math.max(existing.bestSignal, net.signal);
+    existing.supportsFastRoaming ||= net.protocols.ft;
+    existing.supportsBssTransition ||= net.protocols.bssTransition;
+
+    groups.set(key, existing);
+  }
+
+  return [...groups.values()];
+}
+
+function buildScanStats(input: Network[], scanDurationMs: number): ScanStats {
+  const byBand: Record<string, number> = {};
+  const bySecurity: Record<string, number> = {};
+  const byStandard: Record<string, number> = {};
+  const visibleSsids = new Set<string>();
+  let hiddenNetworks = 0;
+
+  for (const net of input) {
+    if (net.isHidden) {
+      hiddenNetworks += 1;
+    }
+    if (net.ssid) {
+      visibleSsids.add(net.ssid);
+    }
+
+    byBand[net.band] = (byBand[net.band] ?? 0) + 1;
+    bySecurity[net.security] = (bySecurity[net.security] ?? 0) + 1;
+    for (const standard of net.standards) {
+      byStandard[standard] = (byStandard[standard] ?? 0) + 1;
+    }
+  }
+
+  return {
+    totalNetworks: input.length,
+    hiddenNetworks,
+    networkGroups: visibleSsids.size,
+    byBand: byBand as ScanStats['byBand'],
+    bySecurity: bySecurity as ScanStats['bySecurity'],
+    byStandard,
+    scanDurationMs,
+  };
+}
 
 /** Hidden networks */
 export const hiddenNetworks = derived(networks, ($networks) =>
@@ -98,18 +161,13 @@ export const ssidCount = derived(networks, ($networks) => {
 export async function scan() {
   isScanning.set(true);
   error.set(null);
+  const startedAt = performance.now();
 
   try {
     const result = await invoke<Network[]>('scan_networks');
     networks.set(result);
-
-    // Also get network groups
-    const groups = await invoke<NetworkGroup[]>('get_network_groups');
-    networkGroups.set(groups);
-
-    // Get scan stats
-    const stats = await invoke<ScanStats>('get_scan_stats');
-    scanStats.set(stats);
+    networkGroups.set(buildNetworkGroups(result));
+    scanStats.set(buildScanStats(result, Math.round(performance.now() - startedAt)));
   } catch (e) {
     error.set(String(e));
     console.error('Scan error:', e);
@@ -172,6 +230,9 @@ function addSignalPoint(bssid: string, signal: number) {
 
 listen<Network[]>('networks-updated', (event) => {
   networks.set(event.payload);
+  networkGroups.set(buildNetworkGroups(event.payload));
+  const previousDuration = get(scanStats)?.scanDurationMs ?? 0;
+  scanStats.set(buildScanStats(event.payload, previousDuration));
 });
 
 listen<{ bssid: string; signal: number }>('signal-update', (event) => {

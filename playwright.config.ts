@@ -12,6 +12,12 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
+  webServer: {
+    command: 'C:\\Users\\w2800\\AppData\\Roaming\\npm\\pnpm.cmd dev --host 127.0.0.1 --port 1420',
+    url: 'http://127.0.0.1:1420',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120000,
+  },
   projects: [
     {
       name: 'chromium',

@@ -1,8 +1,16 @@
-//! OUI Vendor Lookup
+//! OUI/CID vendor lookup.
 //!
-//! Curated prefix matching for common Wi-Fi vendors and chipsets.
+//! Data source:
+//! - IEEE MA-L OUI registry
+//! - IEEE CID registry
 
-fn normalize_prefix(value: &str) -> Option<String> {
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+const VENDOR_PREFIXES_TSV: &str = include_str!("../data/vendor-prefixes.tsv");
+const PREFIX_LENGTHS: [usize; 3] = [9, 7, 6];
+
+fn normalize_identifier(value: &str) -> Option<String> {
     let normalized: String = value
         .chars()
         .filter(|c| c.is_ascii_hexdigit())
@@ -12,122 +20,172 @@ fn normalize_prefix(value: &str) -> Option<String> {
     if normalized.len() < 6 {
         None
     } else {
-        Some(normalized[..6].to_string())
+        Some(normalized)
     }
 }
 
+fn vendor_alias(name: &'static str) -> &'static str {
+    match name {
+        "Extreme Networks Headquarters" => "Extreme Networks",
+        "Hewlett Packard" => "HP",
+        "Hewlett Packard Enterprise" => "HPE",
+        "zte corporation" => "ZTE",
+        "HUAWEI TECHNOLOGIES CO.,LTD" => "Huawei",
+        "HUAWEI TECHNOLOGIES CO.,LTD." => "Huawei",
+        "Huawei Device Co., Ltd." => "Huawei",
+        "TP-LINK TECHNOLOGIES CO.,LTD." => "TP-Link",
+        "TP-LINK TECHNOLOGIES CO., LTD." => "TP-Link",
+        "TP-LINK TECHNOLOGIES CO.,LTD" => "TP-Link",
+        "TP-Link Systems Inc." => "TP-Link",
+        "ASUSTek COMPUTER INC." => "ASUS",
+        "Ubiquiti Inc" => "Ubiquiti",
+        "Ubiquiti Networks Inc." => "Ubiquiti",
+        "Cisco Systems, Inc" => "Cisco",
+        "Cisco Systems, Inc." => "Cisco",
+        "Apple, Inc." => "Apple",
+        "Intel Corporate" => "Intel",
+        "MediaTek Inc" => "MediaTek",
+        other => other,
+    }
+}
+
+fn vendor_prefixes() -> &'static HashMap<&'static str, &'static str> {
+    static PREFIXES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+
+    PREFIXES.get_or_init(|| {
+        let mut map = HashMap::new();
+
+        for line in VENDOR_PREFIXES_TSV.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let mut parts = trimmed.splitn(2, '\t');
+            let Some(prefix) = parts.next() else {
+                continue;
+            };
+            let Some(name) = parts.next() else {
+                continue;
+            };
+
+            map.entry(prefix).or_insert(vendor_alias(name));
+        }
+
+        map
+    })
+}
+
+fn is_locally_administered(prefix: &str) -> bool {
+    u8::from_str_radix(&prefix[0..2], 16)
+        .map(|first_octet| (first_octet & 0x02) != 0)
+        .unwrap_or(false)
+}
+
+fn canonicalize_local_prefix(prefix: &str) -> Option<String> {
+    if !is_locally_administered(prefix) {
+        return None;
+    }
+
+    let first_octet = u8::from_str_radix(&prefix[0..2], 16).ok()?;
+    let canonical = first_octet & !0x02;
+    Some(format!("{:02X}{}", canonical, &prefix[2..]))
+}
+
+fn should_ignore_ie_vendor(vendor: &str) -> bool {
+    let normalized = vendor.to_ascii_lowercase();
+    normalized.contains("microsoft")
+        || normalized.contains("wifi alliance")
+        || normalized.contains("wi-fi alliance")
+}
+
 pub fn lookup_oui(prefix: &str) -> Option<&'static str> {
-    let normalized = normalize_prefix(prefix)?;
+    let normalized = normalize_identifier(prefix)?;
 
-    const VENDORS: &[(&str, &str)] = &[
-        ("00037F", "Atheros"),
-        ("000CE5", "Apple"),
-        ("000F66", "Cisco"),
-        ("001018", "Broadcom"),
-        ("001346", "Cisco"),
-        ("0017F2", "Apple"),
-        ("001A11", "Google"),
-        ("001A2B", "TP-Link"),
-        ("001A70", "Linksys"),
-        ("001CB3", "Dell"),
-        ("001D7E", "Apple"),
-        ("001E58", "ASUS"),
-        ("001EE6", "D-Link"),
-        ("002147", "Netgear"),
-        ("00226B", "Cisco"),
-        ("00226C", "Linksys"),
-        ("002401", "D-Link"),
-        ("0024A5", "Ubiquiti"),
-        ("0024BE", "NVIDIA"),
-        ("00265B", "NVIDIA"),
-        ("0026F2", "Netgear"),
-        ("005056", "VMware"),
-        ("0050F2", "Microsoft"),
-        ("00904C", "Broadcom"),
-        ("00A0C6", "Qualcomm"),
-        ("04D4C4", "Apple"),
-        ("086698", "Apple"),
-        ("089AC7", "Xiaomi"),
-        ("0C47C9", "Netgear"),
-        ("0C4DE9", "Apple"),
-        ("0CB694", "Huawei"),
-        ("10E341", "Huawei"),
-        ("14CC20", "H3C"),
-        ("18A6F7", "Xiaomi"),
-        ("1C5F2B", "ASUS"),
-        ("2034FB", "Apple"),
-        ("240A64", "Xiaomi"),
-        ("2C3A28", "Aruba"),
-        ("2C54CF", "Ubiquiti"),
-        ("30074D", "Apple"),
-        ("3423BA", "Apple"),
-        ("38F9D3", "Apple"),
-        ("3C84A0", "Huawei"),
-        ("44D884", "Apple"),
-        ("483B38", "Intel"),
-        ("48F8B3", "Linksys"),
-        ("4C5E0C", "Samsung"),
-        ("506F9A", "Qualcomm"),
-        ("50C7BF", "TP-Link"),
-        ("542696", "Xiaomi"),
-        ("5C5948", "Intel"),
-        ("603197", "ZTE"),
-        ("68DDB7", "Xiaomi"),
-        ("6C5C14", "TP-Link"),
-        ("7071BC", "Google"),
-        ("784F43", "Apple"),
-        ("7C6D62", "Apple"),
-        ("7CD1C3", "Intel"),
-        ("80EAD2", "Ubiquiti"),
-        ("849FAD", "Apple"),
-        ("8C53C3", "Aruba"),
-        ("8CFDF0", "Qualcomm"),
-        ("90B0ED", "Xiaomi"),
-        ("94BF2D", "Cisco"),
-        ("94F6A3", "Apple"),
-        ("988B5D", "TP-Link"),
-        ("9C2AA4", "Ubiquiti"),
-        ("9CF48E", "Apple"),
-        ("A01828", "Ubiquiti"),
-        ("A42BB0", "TP-Link"),
-        ("A4B197", "TP-Link"),
-        ("A8DA0C", "Huawei"),
-        ("AC84C6", "TP-Link"),
-        ("ACF7F3", "Apple"),
-        ("B06EBF", "Ubiquiti"),
-        ("B827EB", "Raspberry Pi"),
-        ("BC52B7", "Apple"),
-        ("C069CD", "Apple"),
-        ("C83A35", "Tenda"),
-        ("CC2D21", "Netgear"),
-        ("D03745", "TP-Link"),
-        ("D461DA", "Apple"),
-        ("D81C79", "Apple"),
-        ("DCFE18", "Huawei"),
-        ("E4956E", "Ubiquiti"),
-        ("E4F4C6", "Netgear"),
-        ("E848B8", "TP-Link"),
-        ("EC172F", "H3C"),
-        ("F0B429", "Samsung"),
-        ("F4D884", "Apple"),
-        ("F8A45F", "Xiaomi"),
-        ("FCECDA", "Cisco"),
-    ];
+    for length in PREFIX_LENGTHS {
+        if normalized.len() < length {
+            continue;
+        }
 
-    VENDORS
-        .iter()
-        .find(|(known_prefix, _)| *known_prefix == normalized)
-        .map(|(_, vendor)| *vendor)
+        if let Some(vendor) = vendor_prefixes().get(&normalized[..length]) {
+            return Some(*vendor);
+        }
+    }
+
+    None
 }
 
 pub fn lookup_vendor(bssid: &str) -> String {
-    if let Some(normalized) = normalize_prefix(bssid) {
-        if let Ok(first_octet) = u8::from_str_radix(&normalized[0..2], 16) {
-            if (first_octet & 0x02) != 0 {
-                return "Locally Administered".to_string();
+    if let Some(normalized) = normalize_identifier(bssid) {
+        if is_locally_administered(&normalized) {
+            if let Some(canonicalized) = canonicalize_local_prefix(&normalized) {
+                if let Some(vendor) = lookup_oui(&canonicalized) {
+                    return vendor.to_string();
+                }
             }
+
+            return "Locally Administered".to_string();
         }
     }
 
     lookup_oui(bssid).unwrap_or("Unknown").to_string()
+}
+
+pub fn lookup_vendor_from_ie(ie_data: &[u8]) -> Option<String> {
+    let mut pos = 0usize;
+    let mut best_match: Option<&'static str> = None;
+
+    while pos + 1 < ie_data.len() {
+        let id = ie_data[pos];
+        let len = ie_data[pos + 1] as usize;
+
+        if pos + 2 + len > ie_data.len() {
+            break;
+        }
+
+        let data = &ie_data[pos + 2..pos + 2 + len];
+        if id == 221 && data.len() >= 3 {
+            let oui = format!("{:02X}{:02X}{:02X}", data[0], data[1], data[2]);
+            if let Some(vendor) = lookup_oui(&oui) {
+                if should_ignore_ie_vendor(vendor) {
+                    pos += 2 + len;
+                    continue;
+                }
+
+                if best_match.is_none() {
+                    best_match = Some(vendor);
+                }
+            }
+        }
+
+        pos += 2 + len;
+    }
+
+    best_match.map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{lookup_oui, lookup_vendor};
+
+    #[test]
+    fn resolves_known_official_oui_prefixes() {
+        assert_eq!(lookup_oui("802D1A"), Some("ZTE"));
+        assert_eq!(lookup_oui("2C704F"), Some("ZTE"));
+        assert_eq!(lookup_oui("F86FB0"), Some("TP-Link"));
+    }
+
+    #[test]
+    fn resolves_colon_separated_bssid() {
+        assert_eq!(lookup_vendor("80:2D:1A:4B:8C:07"), "ZTE");
+        assert_eq!(lookup_vendor("2C:70:4F:63:CF:DB"), "ZTE");
+        assert_eq!(lookup_vendor("F8:6F:B0:A6:DE:50"), "TP-Link");
+    }
+
+    #[test]
+    fn resolves_locally_administered_prefixes_via_canonical_oui() {
+        assert_eq!(lookup_vendor("6A:DD:B7:78:7F:FF"), "TP-Link");
+        assert_eq!(lookup_vendor("1E:3C:D4:00:AB:B0"), "Huawei");
+        assert_eq!(lookup_vendor("AE:99:29:8A:B4:90"), "Huawei");
+    }
 }

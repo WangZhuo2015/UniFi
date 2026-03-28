@@ -6,7 +6,7 @@
 mod ie;
 
 use crate::types::*;
-use crate::vendor::lookup_vendor;
+use crate::vendor::{lookup_vendor, lookup_vendor_from_ie};
 
 pub use ie::parse_all_ies;
 
@@ -17,16 +17,40 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
     // Parse IE data
     let (standards, mut features, protocols, security, security_details, bss_load, country_code, wps, supported_rates) =
         ie::parse_capabilities(&raw.ie_data);
+    let standards = normalize_standards_for_band(standards, raw.band);
 
     // Detect channel width from IE
     let channel_width = ie::detect_channel_width(&raw.ie_data, raw.channel, raw.band);
     let wifi_generation = detect_wifi_generation(&standards);
+    features.max_supported_width = normalize_width_for_band(features.max_supported_width, raw.band);
     let min_data_rate = calculate_min_rate(&standards, channel_width, &supported_rates);
     let max_data_rate = calculate_max_rate(&standards, channel_width, &features, &supported_rates);
+    let ap_peak_data_rate = calculate_max_rate(
+        &standards,
+        normalize_width_for_band(features.max_supported_width.max(channel_width), raw.band),
+        &features,
+        &supported_rates,
+    );
+    let client_spatial_streams = raw.local_adapter.as_ref().map(|adapter| {
+        adapter
+            .tx_spatial_streams
+            .min(adapter.rx_spatial_streams)
+            .max(1)
+            .min(features.spatial_streams.max(1))
+    });
+    let client_peak_data_rate = raw
+        .local_adapter
+        .as_ref()
+        .and_then(|adapter| calculate_client_peak_data_rate(&standards, channel_width, &features, adapter, &supported_rates, raw.band));
     features.max_data_rate = max_data_rate.round() as u32;
 
     let ssid = raw.ssid_string();
-    let vendor = lookup_vendor(&bssid);
+    let mut vendor = lookup_vendor(&bssid);
+    if vendor == "Unknown" || vendor == "Locally Administered" {
+        if let Some(ie_vendor) = lookup_vendor_from_ie(&raw.ie_data) {
+            vendor = ie_vendor;
+        }
+    }
     let now = raw.timestamp;
     let is_hidden = ssid.is_none();
 
@@ -48,6 +72,7 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         features,
         min_data_rate,
         max_data_rate,
+        ap_peak_data_rate,
         security,
         security_details,
         protocols,
@@ -65,6 +90,10 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         last_seen: now,
         seen_age_secs: 0,
         ap_uptime_secs: raw.uptime_ms.map(|uptime| uptime / 1000),
+        link_rates: raw.link_rates.clone(),
+        local_adapter: raw.local_adapter.clone(),
+        client_peak_data_rate,
+        client_spatial_streams,
     }
 }
 
@@ -121,6 +150,85 @@ fn calculate_max_rate(
         .max()
         .map(|rate| rate as f32)
         .unwrap_or(0.0)
+}
+
+fn calculate_client_peak_data_rate(
+    ap_standards: &[String],
+    channel_width: u16,
+    features: &PerformanceFeatures,
+    adapter: &LocalAdapterCapabilities,
+    supported_rates: &[u32],
+    band: Band,
+) -> Option<f32> {
+    let effective_streams = adapter
+        .tx_spatial_streams
+        .min(adapter.rx_spatial_streams)
+        .max(1)
+        .min(features.spatial_streams.max(1));
+    let effective_width = normalize_width_for_band(
+        adapter
+            .max_supported_width
+            .max(channel_width)
+            .min(features.max_supported_width.max(channel_width)),
+        band,
+    );
+    let common_standards = intersect_standards(ap_standards, &adapter.supported_standards);
+
+    if common_standards.is_empty() {
+        return None;
+    }
+
+    let mut local_features = features.clone();
+    local_features.spatial_streams = effective_streams;
+
+    Some(calculate_max_rate(
+        &common_standards,
+        effective_width,
+        &local_features,
+        supported_rates,
+    ))
+}
+
+fn intersect_standards(ap_standards: &[String], adapter_standards: &[String]) -> Vec<String> {
+    let mut common = Vec::new();
+
+    for standard in ["be", "ax", "ac", "n", "g", "a", "b"] {
+        if ap_standards.iter().any(|value| value == standard)
+            && adapter_standards.iter().any(|value| value == standard)
+        {
+            common.push(standard.to_string());
+        }
+    }
+
+    common
+}
+
+fn normalize_standards_for_band(mut standards: Vec<String>, band: Band) -> Vec<String> {
+    standards.retain(|standard| match band {
+        Band::Ghz2_4 => matches!(standard.as_str(), "b" | "g" | "n" | "ax" | "be"),
+        Band::Ghz5 => matches!(standard.as_str(), "a" | "n" | "ac" | "ax" | "be"),
+        Band::Ghz6 => matches!(standard.as_str(), "ax" | "be"),
+    });
+
+    if standards.is_empty() {
+        standards.push(match band {
+            Band::Ghz2_4 => "g".to_string(),
+            Band::Ghz5 => "a".to_string(),
+            Band::Ghz6 => "ax".to_string(),
+        });
+    }
+
+    standards
+}
+
+fn normalize_width_for_band(width: u16, band: Band) -> u16 {
+    let capped = match band {
+        Band::Ghz2_4 => width.min(40),
+        Band::Ghz5 => width.min(160),
+        Band::Ghz6 => width.min(320),
+    };
+
+    if capped == 0 { 20 } else { capped }
 }
 
 fn ht_rate_mbps(channel_width: u16, short_gi: bool, mcs: usize, streams: u32) -> f32 {
