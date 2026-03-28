@@ -24,7 +24,7 @@ mod gui {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex as StdMutex;
     use tauri::Emitter;
-    use scanner::{get_scanner, ScannerMode};
+    use scanner::{get_scanner, parse_scanner_mode};
     use parser::{parse_beacon, parse_all_ies};
     use roaming::{RoamingMonitor, RoamingTestConfig, PingConfig};
 
@@ -42,12 +42,7 @@ mod gui {
 
     #[tauri::command]
     pub fn scan_networks_with_scanner(scanner_name: String) -> Result<Vec<Network>, String> {
-        let mode = match scanner_name.to_lowercase().as_str() {
-            "corewlan" => ScannerMode::CoreWLAN,
-            "airport" => ScannerMode::Airport,
-            "libpcap" => ScannerMode::Libpcap,
-            _ => ScannerMode::Default,
-        };
+        let mode = parse_scanner_mode(&scanner_name);
         scanner::scan_networks_with_mode(mode).map_err(|e| e.to_string())
     }
 

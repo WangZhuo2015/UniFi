@@ -295,6 +295,7 @@ pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResu
 }
 
 /// Parse RTT from ping output (macOS/Linux format)
+#[cfg(not(target_os = "windows"))]
 fn parse_rtt_from_ping(output: &str) -> Option<u64> {
     // Look for "time=X.XXX ms" or "time=X ms"
     for line in output.lines() {
@@ -310,6 +311,7 @@ fn parse_rtt_from_ping(output: &str) -> Option<u64> {
 }
 
 /// Parse TTL from ping output
+#[cfg(not(target_os = "windows"))]
 fn parse_ttl_from_ping(output: &str) -> Option<u8> {
     for line in output.lines() {
         if line.contains("ttl=") {

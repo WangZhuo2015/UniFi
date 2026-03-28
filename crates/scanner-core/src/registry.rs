@@ -157,29 +157,35 @@ impl ScannerRegistry {
 }
 
 /// Global scanner registry
+#[allow(dead_code)]
 static REGISTRY: std::sync::OnceLock<ScannerRegistry> = std::sync::OnceLock::new();
 
 /// Get the global scanner registry
+#[allow(dead_code)]
 pub fn global_registry() -> &'static ScannerRegistry {
     REGISTRY.get_or_init(ScannerRegistry::new)
 }
 
 /// Register a scanner with the global registry
+#[allow(dead_code)]
 pub fn register_scanner(scanner: Box<dyn Scanner>) {
     global_registry().register(scanner);
 }
 
 /// Get a scanner from the global registry
+#[allow(dead_code)]
 pub fn get_scanner(name: &str) -> Option<Arc<Box<dyn Scanner>>> {
     global_registry().get(name)
 }
 
 /// Get the default scanner from the global registry
+#[allow(dead_code)]
 pub fn get_default_scanner() -> Option<Arc<Box<dyn Scanner>>> {
     global_registry().get_default()
 }
 
 /// Get the best available scanner
+#[allow(dead_code)]
 pub fn get_best_scanner() -> Option<Arc<Box<dyn Scanner>>> {
     global_registry().get_best()
 }

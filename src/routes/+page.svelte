@@ -1,17 +1,30 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount } from 'svelte';
   import {
-    networks, scan, isScanning, error, byBand, selectedNetwork, selectedBssid,
-    currentNetwork, fetchCurrentNetwork, isMonitoring, startMonitor, stopMonitor,
-    networkGroups, scanStats
+    networks,
+    scan,
+    isScanning,
+    error,
+    byBand,
+    selectedBssid,
+    selectedNetwork,
+    currentNetwork,
+    fetchCurrentNetwork,
+    isMonitoring,
+    startMonitor,
+    stopMonitor,
+    networkGroups,
+    scanStats
   } from '$lib/stores';
+  import { locale, t, translateSignalQuality } from '$lib/i18n';
   import { cn, signalColor, signalQuality } from '$lib/utils';
-  import NetworkCard from '$lib/components/NetworkCard.svelte';
   import IEDetailsPanel from '$lib/components/IEDetailsPanel.svelte';
   import ChannelView from '$lib/components/ChannelView.svelte';
   import TitleBar from '$lib/components/TitleBar.svelte';
   import RoamingTest from '$lib/components/RoamingTest.svelte';
+  import VendorLogo from '$lib/components/VendorLogo.svelte';
   import Button from '$lib/components/ui/button.svelte';
+  import type { Network } from '$lib/types';
 
   let filterText = $state('');
   let activeBand = $state<'all' | '2.4' | '5' | '6'>('all');
@@ -28,13 +41,12 @@
 
     if (filterText) {
       const search = filterText.toLowerCase();
-      list = list.filter(n => n.ssid?.toLowerCase().includes(search) ?? false);
+      list = list.filter((n) => n.ssid?.toLowerCase().includes(search) ?? false);
     }
 
-    return list.sort((a, b) => b.signal - a.signal);
+    return [...list].sort((a, b) => b.signal - a.signal);
   });
 
-  // Export functions
   function exportJSON() {
     const data = JSON.stringify($networks, null, 2);
     downloadFile(data, 'unifi-scan.json', 'application/json');
@@ -43,8 +55,8 @@
 
   function exportCSV() {
     const headers = ['SSID', 'BSSID', 'Channel', 'Band', 'Signal (dBm)', 'Standard', 'Security', 'Vendor'];
-    const rows = $networks.map(n => [
-      n.ssid ?? '[Hidden]',
+    const rows = $networks.map((n) => [
+      n.ssid ?? t($locale, 'hiddenNetwork'),
       n.bssid,
       n.channel,
       n.band,
@@ -54,7 +66,7 @@
       n.vendor
     ]);
 
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const csv = [headers, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n');
     downloadFile(csv, 'unifi-scan.csv', 'text/csv');
     showExportMenu = false;
   }
@@ -69,7 +81,6 @@
     URL.revokeObjectURL(url);
   }
 
-  // Toggle monitoring
   function toggleMonitoring() {
     if ($isMonitoring) {
       stopMonitor();
@@ -78,490 +89,377 @@
     }
   }
 
+  function detailValue(value: string | number | null | undefined, fallback = '-') {
+    return value === null || value === undefined || value === '' ? fallback : value;
+  }
+
+  function selectNetwork(bssid: string) {
+    selectedBssid.set(bssid);
+  }
+
+  function formatRate(value: number) {
+    return `${value.toFixed(1)} Mbps`;
+  }
+
+  function formatDuration(totalSeconds: number | undefined) {
+    if (totalSeconds === undefined) {
+      return t($locale, 'notAvailable');
+    }
+
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (days > 0) {
+      return `${days}d ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  function formatSeen(ageSeconds: number) {
+    return ageSeconds === 0 ? t($locale, 'nowLabel') : `${ageSeconds}s`;
+  }
+
+  function displayStandard(network: Network | null) {
+    if (!network || network.standards.length === 0) {
+      return '-';
+    }
+
+    return network.standards[network.standards.length - 1];
+  }
+
   onMount(() => {
     scan();
     fetchCurrentNetwork();
   });
 </script>
 
-<div class="h-screen flex flex-col bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden rounded-lg shadow-2xl border border-gray-200/50 dark:border-gray-700/50">
-  <!-- Custom Title Bar -->
+<div class="flex h-screen flex-col overflow-hidden rounded-lg border border-gray-200/50 bg-white text-gray-900 shadow-2xl dark:border-gray-700/50 dark:bg-gray-900 dark:text-gray-100">
   <TitleBar />
 
-  <!-- Header -->
-  <header class="bg-gray-50/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 px-4 py-2.5 shrink-0">
-    <div class="flex items-center justify-between">
+  <header class="shrink-0 border-b border-gray-200/50 bg-gray-50/80 px-4 py-2.5 backdrop-blur-xl dark:border-gray-700/50 dark:bg-gray-800/80">
+    <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
-        <div class="flex rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700 p-0.5 text-xs font-medium">
-          <button
-            class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'networks' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
-            onclick={() => activeTab = 'networks'}
-          >网络列表</button>
-          <button
-            class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'channels' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
-            onclick={() => activeTab = 'channels'}
-          >信道分析</button>
-          <button
-            class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'groups' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
-            onclick={() => activeTab = 'groups'}
-          >网络分组</button>
-          <button
-            class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'roaming' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
-            onclick={() => activeTab = 'roaming'}
-          >漫游测试</button>
+        <div class="flex overflow-hidden rounded-lg bg-gray-100 p-0.5 text-xs font-medium dark:bg-gray-700">
+          <button class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'networks' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}" onclick={() => activeTab = 'networks'}>{t($locale, 'networksTab')}</button>
+          <button class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'channels' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}" onclick={() => activeTab = 'channels'}>{t($locale, 'channelsTab')}</button>
+          <button class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'groups' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}" onclick={() => activeTab = 'groups'}>{t($locale, 'groupsTab')}</button>
+          <button class="px-3 py-1.5 rounded-md transition-all duration-200 {activeTab === 'roaming' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}" onclick={() => activeTab = 'roaming'}>{t($locale, 'roamingTab')}</button>
         </div>
       </div>
+
       <div class="flex items-center gap-2">
-        <!-- Export -->
         <div class="relative">
-          <Button variant="ghost" size="sm" onclick={() => showExportMenu = !showExportMenu}>
-            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            导出
-          </Button>
+          <Button variant="ghost" size="sm" onclick={() => showExportMenu = !showExportMenu}>{t($locale, 'export')}</Button>
           {#if showExportMenu}
-            <div class="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200/80 dark:border-gray-700/80 rounded-lg shadow-xl z-50 py-1 min-w-36 backdrop-blur-xl animate-scale-in">
-              <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors rounded-md mx-1" onclick={exportJSON}>导出 JSON</button>
-              <button class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors rounded-md mx-1" onclick={exportCSV}>导出 CSV</button>
+            <div class="absolute right-0 top-full z-50 mt-1 min-w-36 rounded-lg border border-gray-200/80 bg-white py-1 shadow-xl backdrop-blur-xl dark:border-gray-700/80 dark:bg-gray-800">
+              <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={exportJSON}>{t($locale, 'exportJson')}</button>
+              <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={exportCSV}>{t($locale, 'exportCsv')}</button>
             </div>
           {/if}
         </div>
-        <!-- Monitoring toggle -->
+
         <Button variant="ghost" size="sm" onclick={toggleMonitoring}>
-          <div class="relative">
-            <svg class="w-4 h-4 mr-1.5 {$isMonitoring ? 'text-green-500' : 'text-gray-400'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-            {#if $isMonitoring}
-              <span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            {/if}
-          </div>
-          {$isMonitoring ? '监控中' : '开始监控'}
+          {$isMonitoring ? t($locale, 'monitoring') : t($locale, 'startMonitoring')}
         </Button>
-        <Button size="sm" onclick={() => scan()} disabled={$isScanning} class="native-button">
-          {#if $isScanning}
-            <svg class="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-          {:else}
-            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          {/if}
-          {$isScanning ? '扫描中...' : '扫描'}
+
+        <Button size="sm" disabled={$isScanning} class="native-button" onclick={() => scan()}>
+          {$isScanning ? t($locale, 'scanning') : t($locale, 'scan')}
         </Button>
       </div>
     </div>
 
-    <!-- Current Connection Banner -->
     {#if $currentNetwork}
-      <div class="mt-2 flex items-center gap-3 px-3 py-2 bg-green-50/80 dark:bg-green-900/20 rounded-lg border border-green-200/50 dark:border-green-800/50 animate-slide-up">
-        <div class="flex items-center gap-2">
-          <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span class="font-medium text-green-800 dark:text-green-200 text-sm">已连接: {$currentNetwork.ssid ?? '[Hidden]'}</span>
-        </div>
-        <div class="text-xs text-green-700 dark:text-green-300">
-          CH {$currentNetwork.channel} · {$currentNetwork.band}GHz · {$currentNetwork.signal} dBm
-          {#if $currentNetwork.standards.length > 0}
-            · {$currentNetwork.standards[$currentNetwork.standards.length - 1].toUpperCase()}
-          {/if}
-        </div>
+      <div class="mt-2 flex items-center gap-3 rounded-lg border border-green-200/50 bg-green-50/80 px-3 py-2 text-sm text-green-800 dark:border-green-800/50 dark:bg-green-900/20 dark:text-green-200">
+        <span class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+        <span class="font-medium">{t($locale, 'connectedTo')} {$currentNetwork.ssid ?? t($locale, 'hiddenNetwork')}</span>
+        <span class="text-xs text-green-700 dark:text-green-300">CH {$currentNetwork.channel} · {$currentNetwork.band} GHz · {$currentNetwork.signal} dBm</span>
       </div>
     {/if}
   </header>
 
-  <!-- Error Banner -->
   {#if $error}
-    <div class="bg-red-50/80 dark:bg-red-900/20 border-b border-red-200/50 dark:border-red-800/50 text-red-700 dark:text-red-300 px-4 py-2 text-sm animate-slide-up">
-      <div class="flex items-center gap-2">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        {$error}
-      </div>
-    </div>
+    <div class="border-b border-red-200/50 bg-red-50/80 px-4 py-2 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300">{$error}</div>
   {/if}
 
-  <!-- Main Content -->
-  <div class="flex-1 flex overflow-hidden">
+  <div class="flex flex-1 overflow-hidden">
     {#if activeTab === 'networks'}
-      <!-- Network List View -->
-      <div class="w-[340px] border-r border-gray-200/50 dark:border-gray-700/50 flex flex-col bg-gray-50/50 dark:bg-gray-800/50 backdrop-blur-sm shrink-0">
-        <!-- Filters -->
-        <div class="p-3 border-b border-gray-200/50 dark:border-gray-700/50 shrink-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm">
+      <div class="flex w-[58%] min-w-0 shrink-0 flex-col border-r border-gray-200/50 bg-gray-50/50 dark:border-gray-700/50 dark:bg-gray-800/50">
+        <div class="shrink-0 border-b border-gray-200/50 bg-white/50 p-3 backdrop-blur-sm dark:border-gray-700/50 dark:bg-gray-800/50">
           <div class="flex gap-2">
-            <div class="relative flex-1">
-              <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="search"
-                placeholder="搜索网络..."
-                bind:value={filterText}
-                class="w-full pl-8 pr-3 py-2 text-xs bg-white dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600/50 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-all"
-              />
-            </div>
-            <div class="flex rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700 p-0.5">
-              {#each ['all', '2.4', '5', '6'] as band}
-                <button
-                  class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 {activeBand === band
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
-                  onclick={() => activeBand = band as typeof activeBand}
-                >
-                  {band === 'all' ? '全部' : `${band}G`}
-                </button>
+            <input type="search" bind:value={filterText} placeholder={t($locale, 'searchNetworks')} class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 placeholder-gray-400 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-600/50 dark:bg-gray-700/50 dark:text-gray-100" />
+            <div class="flex overflow-hidden rounded-lg bg-gray-100 p-0.5 dark:bg-gray-700">
+              {#each [
+                { value: 'all', label: t($locale, 'allBands') },
+                { value: '2.4', label: t($locale, 'band24') },
+                { value: '5', label: t($locale, 'band5') },
+                { value: '6', label: t($locale, 'band6') }
+              ] as item}
+                <button class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 {activeBand === item.value ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}" onclick={() => activeBand = item.value as typeof activeBand}>{item.label}</button>
               {/each}
             </div>
           </div>
-          <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex justify-between items-center">
-            <span class="font-medium">{$networks.length} 个网络</span>
+          <div class="mt-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <span class="font-medium">{t($locale, 'networksCount', { count: filtered.length })}</span>
             {#if $scanStats}
-              <span class="text-gray-400">{$scanStats.scanDurationMs}ms</span>
+              <span>{t($locale, 'scanDuration')}: {$scanStats.scanDurationMs} ms</span>
             {/if}
           </div>
         </div>
 
-        <!-- Network List -->
-        <div class="flex-1 overflow-y-auto p-2 space-y-1.5">
+        <div class="flex-1 overflow-auto">
           {#if $isScanning && $networks.length === 0}
-            <div class="text-center text-gray-400 dark:text-gray-500 py-12 animate-pulse">
-              <svg class="w-8 h-8 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-              </svg>
-              <div class="text-sm">扫描中...</div>
-            </div>
+            <div class="py-12 text-center text-sm text-gray-400 dark:text-gray-500">{t($locale, 'scanningInProgress')}</div>
           {:else if filtered.length === 0}
-            <div class="text-center text-gray-400 dark:text-gray-500 py-12">
-              <svg class="w-8 h-8 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
-              </svg>
-              <div class="text-sm">未发现网络</div>
-            </div>
+            <div class="py-12 text-center text-sm text-gray-400 dark:text-gray-500">{t($locale, 'noNetworksFound')}</div>
           {:else}
-            {#each filtered as network (network.bssid)}
-              <NetworkCard {network} />
-            {/each}
+            <div class="min-w-[1180px]">
+              <div class="grid grid-cols-[160px_260px_110px_100px_110px_110px_90px_70px_90px_90px_70px_70px_150px_150px_90px] border-b border-gray-200/60 bg-gray-100/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-300">
+                <div>{t($locale, 'bssidColumn')}</div>
+                <div>{t($locale, 'networkNameColumn')}</div>
+                <div>{t($locale, 'rssiColumn')}</div>
+                <div>{t($locale, 'beaconColumn')}</div>
+                <div>{t($locale, 'minRateColumn')}</div>
+                <div>{t($locale, 'maxRateColumn')}</div>
+                <div>{t($locale, 'band')}</div>
+                <div>{t($locale, 'channelColumn')}</div>
+                <div>{t($locale, 'widthColumn')}</div>
+                <div>{t($locale, 'standardColumn')}</div>
+                <div>{t($locale, 'countryCodeColumn')}</div>
+                <div>{t($locale, 'generationColumn')}</div>
+                <div>{t($locale, 'apUptimeColumn')}</div>
+                <div>{t($locale, 'securityColumn')}</div>
+                <div>{t($locale, 'seenColumn')}</div>
+              </div>
+
+              {#each filtered as network (network.bssid)}
+                <button
+                  type="button"
+                  class={cn(
+                    'grid w-full grid-cols-[160px_260px_110px_100px_110px_110px_90px_70px_90px_90px_70px_70px_150px_150px_90px] border-b border-gray-200/40 px-3 py-2 text-left text-sm transition-colors dark:border-gray-700/40',
+                    $selectedNetwork?.bssid === network.bssid
+                      ? 'bg-blue-600/90 text-white'
+                      : 'bg-transparent text-gray-900 hover:bg-gray-100/70 dark:text-gray-100 dark:hover:bg-gray-800/70'
+                  )}
+                  onclick={() => selectNetwork(network.bssid)}
+                >
+                  <div class="truncate font-mono text-xs">{network.bssid.toUpperCase()}</div>
+                  <div class="truncate">{network.ssid ?? t($locale, 'hiddenNetwork')}</div>
+                  <div class="flex items-center gap-2">
+                    <span class="tabular-nums">{network.signal} dBm</span>
+                    <span class="h-2 w-14 overflow-hidden rounded-full border border-amber-500/60 bg-gray-900/40">
+                      <span
+                        class="block h-full bg-amber-400"
+                        style={`width:${Math.max(8, Math.min(100, ((network.signal + 100) / 70) * 100))}%`}
+                      ></span>
+                    </span>
+                  </div>
+                  <div>{network.beaconInterval.toFixed(1)} ms</div>
+                  <div>{formatRate(network.minDataRate)}</div>
+                  <div>{formatRate(network.maxDataRate)}</div>
+                  <div>{network.band} GHz</div>
+                  <div>{network.channel}</div>
+                  <div>{network.channelWidth} MHz</div>
+                  <div>{displayStandard(network)}</div>
+                  <div>{network.countryCode ?? t($locale, 'notAvailable')}</div>
+                  <div>{network.wifiGeneration}</div>
+                  <div>{formatDuration(network.apUptimeSecs)}</div>
+                  <div>{network.security === 'open' ? t($locale, 'openSecurity') : network.security.toUpperCase()}</div>
+                  <div>{formatSeen(network.seenAgeSecs)}</div>
+                </button>
+              {/each}
+            </div>
           {/if}
         </div>
       </div>
 
-      <!-- Right Panel: Network Details -->
-      <div class="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-y-auto">
+      <div class="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-gray-900">
         {#if $selectedNetwork}
-          <div class="p-5 max-w-2xl animate-fade-in">
-            <!-- Title -->
-            <div class="mb-5 pb-4 border-b border-gray-200/50 dark:border-gray-700/50">
-              <h2 class="text-lg font-bold text-gray-900 dark:text-white">
-                {$selectedNetwork.ssid ?? '[隐藏网络]'}
-              </h2>
-              <div class="mt-1.5 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                <span class="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{$selectedNetwork.bssid.toUpperCase()}</span>
-                <span class="text-gray-300 dark:text-gray-600">·</span>
-                <span>{$selectedNetwork.vendor || 'Unknown Vendor'}</span>
-              </div>
-            </div>
-
-            <!-- Signal Section -->
-            <div class="mb-6">
-              <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">信号质量</h3>
-              <div class="grid grid-cols-3 gap-3">
-                <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                  <div class={cn('text-2xl font-bold tabular-nums', signalColor($selectedNetwork.signal))}>
-                    {$selectedNetwork.signal}
+          <div class="mx-auto min-w-0 max-w-4xl p-5">
+            <div class="mb-5 border-b border-gray-200/50 pb-4 dark:border-gray-700/50">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-lg font-bold text-gray-900 dark:text-white">{$selectedNetwork.ssid ?? t($locale, 'hiddenNetwork')}</h2>
+                  <div class="mt-1.5 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                    <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs dark:bg-gray-800">{$selectedNetwork.bssid.toUpperCase()}</span>
+                    <span>{$selectedNetwork.vendor || t($locale, 'unknownVendor')}</span>
                   </div>
-                  <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">dBm · {signalQuality($selectedNetwork.signal)}</div>
                 </div>
-                <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                  <div class="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
-                    {$selectedNetwork.snr}
+                <div class="flex items-center gap-3 rounded-2xl border border-gray-200/60 bg-gray-50 px-3 py-2 shadow-sm dark:border-gray-700/60 dark:bg-gray-800/60">
+                  <VendorLogo vendor={$selectedNetwork.vendor} />
+                  <div class="text-right">
+                    <div class="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">Vendor</div>
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">{$selectedNetwork.vendor || t($locale, 'unknownVendor')}</div>
                   </div>
-                  <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">SNR (dB)</div>
-                </div>
-                <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                  <div class="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
-                    {$selectedNetwork.noise}
-                  </div>
-                  <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">Noise (dBm)</div>
                 </div>
               </div>
             </div>
 
-            <!-- BSS Load -->
+            <div class="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                <div class={cn('text-2xl font-bold tabular-nums', signalColor($selectedNetwork.signal))}>{$selectedNetwork.signal}</div>
+                <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">dBm · {translateSignalQuality($locale, signalQuality($selectedNetwork.signal))}</div>
+              </div>
+              <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                <div class="text-2xl font-bold tabular-nums">{$selectedNetwork.snr}</div>
+                <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">SNR (dB)</div>
+              </div>
+              <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                <div class="text-2xl font-bold tabular-nums">{$selectedNetwork.noise}</div>
+                <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">Noise (dBm)</div>
+              </div>
+            </div>
+
             {#if $selectedNetwork.bssLoad}
               <div class="mb-6">
-                <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">BSS 负载 (802.11k)</h3>
-                <div class="grid grid-cols-3 gap-3">
-                  <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                    <div class={cn('text-2xl font-bold tabular-nums', ($selectedNetwork.bssLoad.channelUtilization / 255) > 0.6 ? 'text-red-500' : 'text-green-500')}>
-                      {(($selectedNetwork.bssLoad.channelUtilization / 255) * 100).toFixed(0)}%
-                    </div>
-                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">信道利用率</div>
+                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'bssLoad')}</h3>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                    <div class="text-2xl font-bold">{(($selectedNetwork.bssLoad.channelUtilization / 255) * 100).toFixed(0)}%</div>
+                    <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">{t($locale, 'channelUtilization')}</div>
                   </div>
-                  <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                    <div class="text-2xl font-bold text-blue-500 tabular-nums">
-                      {$selectedNetwork.bssLoad.stationCount}
-                    </div>
-                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">连接设备</div>
+                  <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                    <div class="text-2xl font-bold">{$selectedNetwork.bssLoad.stationCount}</div>
+                    <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">{t($locale, 'connectedDevices')}</div>
                   </div>
-                  <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-center">
-                    <div class="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
-                      {$selectedNetwork.bssLoad.availableCapacity}
-                    </div>
-                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">可用容量</div>
+                  <div class="rounded-xl border border-gray-200/50 bg-gray-50 p-4 text-center dark:border-gray-700/50 dark:bg-gray-800/50">
+                    <div class="text-2xl font-bold">{$selectedNetwork.bssLoad.availableCapacity}</div>
+                    <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">{t($locale, 'availableCapacity')}</div>
                   </div>
                 </div>
               </div>
             {/if}
 
-            <!-- Network Info -->
-            <div class="mb-6">
-              <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">网络信息</h3>
-              <div class="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50 divide-y divide-gray-200/50 dark:divide-gray-700/50">
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">频段</span>
-                  <span class="font-medium">{$selectedNetwork.band}GHz · CH {$selectedNetwork.channel}</span>
+            <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <section>
+                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'networkInfo')}</h3>
+                <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'band')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.band} GHz · CH {$selectedNetwork.channel}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'channelWidth')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.channelWidth} MHz</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'frequency')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.frequency} MHz</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'beaconInterval')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.beaconInterval} ms</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'country')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{detailValue($selectedNetwork.countryCode)}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'wps')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.wpsEnabled ? t($locale, 'enabled') : t($locale, 'disabled')}</span></div>
                 </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">信道宽度</span>
-                  <span class="font-medium">{$selectedNetwork.channelWidth} MHz</span>
+              </section>
+
+              <section>
+                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'wifiStandards')}</h3>
+                <div class="mb-3 flex flex-wrap gap-2">
+                  {#each $selectedNetwork.standards as std}
+                    <span class="rounded-lg bg-gradient-to-r from-indigo-500 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
+                      {std === 'be' ? 'WiFi 7' : std === 'ax' ? 'WiFi 6' : std === 'ac' ? 'WiFi 5' : std === 'n' ? 'WiFi 4' : std.toUpperCase()}
+                    </span>
+                  {/each}
                 </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">频率</span>
-                  <span class="font-medium tabular-nums">{$selectedNetwork.frequency} MHz</span>
+                <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'spatialStreams')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.features?.spatialStreams ?? 1}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'maxRate')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{formatRate($selectedNetwork.maxDataRate)}</span></div>
+                  <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'guardInterval')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.features?.guardInterval ? `${$selectedNetwork.features.guardInterval} ns` : '-'}</span></div>
                 </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">信标间隔</span>
-                  <span class="font-medium tabular-nums">{$selectedNetwork.beaconInterval} ms</span>
-                </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">国家</span>
-                  <span class="font-medium">{$selectedNetwork.countryCode || 'N/A'}</span>
-                </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">WPS</span>
-                  <span class={cn('font-medium', $selectedNetwork.wpsEnabled ? 'text-orange-500' : '')}>{$selectedNetwork.wpsEnabled ? '开启' : '关闭'}</span>
-                </div>
-              </div>
+              </section>
             </div>
 
-            <!-- WiFi Standards -->
-            <div class="mb-6">
-              <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">WiFi 标准</h3>
-              <div class="flex flex-wrap gap-2 mb-3">
-                {#each $selectedNetwork.standards as std}
-                  <span class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm">
-                    {std === 'be' ? 'WiFi 7' : std === 'ax' ? 'WiFi 6' : std === 'ac' ? 'WiFi 5' : std === 'n' ? 'WiFi 4' : std.toUpperCase()}
-                  </span>
-                {/each}
-              </div>
-              <div class="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50 divide-y divide-gray-200/50 dark:divide-gray-700/50">
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">空间流</span>
-                  <span class="font-medium">{$selectedNetwork.features?.spatialStreams ?? 1} × {$selectedNetwork.features?.spatialStreams ?? 1}</span>
+            <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <section>
+                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'performanceFeatures')}</h3>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {#each [
+                    ['MU-MIMO', $selectedNetwork.features.muMimo],
+                    ['OFDMA', $selectedNetwork.features.ofdma],
+                    ['BSS Coloring', $selectedNetwork.features.bssColoring],
+                    ['TXBF', $selectedNetwork.features.txBeamforming]
+                  ] as [label, enabled]}
+                    <div class="flex items-center justify-between rounded-xl border border-gray-200/50 bg-gray-50 px-4 py-3 dark:border-gray-700/50 dark:bg-gray-800/50">
+                      <span class="min-w-0 pr-2 text-sm [overflow-wrap:anywhere]">{label}</span>
+                      <span class={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
+                        {enabled ? t($locale, 'supported') : t($locale, 'unsupported')}
+                      </span>
+                    </div>
+                  {/each}
                 </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">最大速率</span>
-                  <span class="font-medium tabular-nums">{$selectedNetwork.features?.maxDataRate ?? 0} Mbps</span>
+              </section>
+
+              <section>
+                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'protocolExtensions')}</h3>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {#each [
+                    ['802.11k (RRM)', $selectedNetwork.protocols.rrm],
+                    ['802.11r (FT)', $selectedNetwork.protocols.ft],
+                    ['802.11v (BSS)', $selectedNetwork.protocols.bssTransition],
+                    ['802.11w (PMF)', $selectedNetwork.protocols.pmf]
+                  ] as [label, enabled]}
+                    <div class="flex items-center justify-between rounded-xl border border-gray-200/50 bg-gray-50 px-4 py-3 dark:border-gray-700/50 dark:bg-gray-800/50">
+                      <span class="min-w-0 pr-2 text-sm [overflow-wrap:anywhere]">{label}</span>
+                      <span class={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', enabled ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}>
+                        {enabled ? t($locale, 'supported') : t($locale, 'unsupported')}
+                      </span>
+                    </div>
+                  {/each}
                 </div>
-                <div class="flex justify-between px-4 py-2.5 text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">保护间隔</span>
-                  <span class="font-medium">
-                    {#if $selectedNetwork.features?.guardInterval}
-                      {$selectedNetwork.features.guardInterval < 1000
-                        ? `0.${$selectedNetwork.features.guardInterval / 100} µs`
-                        : `${$selectedNetwork.features.guardInterval / 1000} µs`}
-                    {:else}
-                      0.8 µs
-                    {/if}
-                  </span>
-                </div>
-                {#if $selectedNetwork.features?.mcsIndex}
-                  <div class="flex justify-between px-4 py-2.5 text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">MCS Index</span>
-                    <span class="font-medium tabular-nums">{$selectedNetwork.features.mcsIndex}</span>
-                  </div>
-                {/if}
-              </div>
+              </section>
             </div>
 
-            <!-- Performance Features -->
-            {#if $selectedNetwork.features}
-              <div class="mb-6">
-                <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">性能特性</h3>
-                <div class="grid grid-cols-2 gap-2">
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">MU-MIMO</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.features.muMimo ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.features.muMimo ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">OFDMA</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.features.ofdma ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.features.ofdma ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">BSS Coloring</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.features.bssColoring ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.features.bssColoring ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">TXBF</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.features.txBeamforming ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.features.txBeamforming ? '✓' : '✗'}
-                    </span>
-                  </div>
-                </div>
+            <section class="mb-6">
+              <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'securityInfo')}</h3>
+              <div class="overflow-hidden rounded-xl border border-gray-200/50 bg-gray-50 dark:border-gray-700/50 dark:bg-gray-800/50">
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'securityType')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.security === 'open' ? t($locale, 'openSecurity') : $selectedNetwork.security.toUpperCase()}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'authMethod')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.authMethod}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">{t($locale, 'encryption')}</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.cipher}</span></div>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm"><span class="shrink-0 text-gray-500 dark:text-gray-400">PMF</span><span class="max-w-[60%] min-w-0 break-words text-right font-medium">{$selectedNetwork.securityDetails.pmfCapable ? t($locale, 'supported') : t($locale, 'unsupported')}{#if $selectedNetwork.securityDetails.pmfRequired}<span class="ml-1 text-blue-500">({t($locale, 'required')})</span>{/if}</span></div>
               </div>
-            {/if}
+            </section>
 
-            <!-- Protocol Extensions -->
-            {#if $selectedNetwork.protocols}
-              <div class="mb-6">
-                <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">协议扩展</h3>
-                <div class="grid grid-cols-2 gap-2">
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">802.11k (RRM)</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.protocols.rrm ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.protocols.rrm ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">802.11r (FT)</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.protocols.ft ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.protocols.ft ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">802.11v (BSS)</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.protocols.bssTransition ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.protocols.bssTransition ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                    <span class="text-sm">802.11w (PMF)</span>
-                    <span class={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold', $selectedNetwork.protocols.pmf ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                      {$selectedNetwork.protocols.pmf ? '✓' : '✗'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- Security -->
-            {#if $selectedNetwork.securityDetails}
-              <div class="mb-6">
-                <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">安全信息</h3>
-                <div class="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50 divide-y divide-gray-200/50 dark:divide-gray-700/50">
-                  <div class="flex justify-between px-4 py-2.5 text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">安全类型</span>
-                    <span class="font-medium text-green-600 dark:text-green-400">{$selectedNetwork.security.toUpperCase()}</span>
-                  </div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">认证方式</span>
-                    <span class="font-medium">{$selectedNetwork.securityDetails.authMethod}</span>
-                  </div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">加密</span>
-                    <span class="font-medium">{$selectedNetwork.securityDetails.cipher}</span>
-                  </div>
-                  <div class="flex justify-between px-4 py-2.5 text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">PMF</span>
-                    <span class="font-medium">
-                      {$selectedNetwork.securityDetails.pmfCapable ? '支持' : '不支持'}
-                      {#if $selectedNetwork.securityDetails.pmfRequired}
-                        <span class="text-blue-500">(必需)</span>
-                      {/if}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- IE Details Button -->
-            <div class="mt-6">
-              <Button
-                onclick={() => showIEDetails = true}
-                variant="outline"
-                class="w-full native-button"
-              >
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                查看 Beacon Frame (IE 解析)
-              </Button>
-            </div>
+            <Button variant="outline" class="w-full native-button" onclick={() => showIEDetails = true}>{t($locale, 'viewBeaconFrame')}</Button>
           </div>
         {:else}
-          <div class="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500 bg-gray-50/50 dark:bg-gray-800/30">
-            <div class="text-center animate-fade-in">
-              <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                <svg class="w-8 h-8 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                </svg>
-              </div>
-              <div class="text-sm font-medium">点击左侧网络查看详情</div>
-              <div class="text-xs text-gray-300 dark:text-gray-600 mt-1">选择一个网络以查看完整信息</div>
+          <div class="flex h-full items-center justify-center bg-gray-50/50 text-gray-400 dark:bg-gray-800/30 dark:text-gray-500">
+            <div class="text-center">
+              <div class="text-sm font-medium">{t($locale, 'selectNetworkTitle')}</div>
+              <div class="mt-1 text-xs text-gray-300 dark:text-gray-600">{t($locale, 'selectNetworkHint')}</div>
             </div>
           </div>
         {/if}
       </div>
-
     {:else if activeTab === 'channels'}
-      <!-- Channel Analysis View -->
-      <div class="flex-1 overflow-y-auto bg-gray-50/30 dark:bg-gray-800/30">
-        <ChannelView />
-      </div>
-
+      <div class="flex-1 overflow-y-auto bg-gray-50/30 dark:bg-gray-800/30"><ChannelView /></div>
     {:else if activeTab === 'groups'}
-      <!-- Network Groups View -->
-      <div class="flex-1 overflow-y-auto p-5 bg-gray-50/30 dark:bg-gray-800/30">
+      <div class="flex-1 overflow-y-auto bg-gray-50/30 p-5 dark:bg-gray-800/30">
         {#if $networkGroups.length === 0}
-          <div class="text-center text-gray-400 dark:text-gray-500 py-12 animate-fade-in">
-            <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-              <svg class="w-8 h-8 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div class="text-sm font-medium">无网络分组</div>
-            <div class="text-xs text-gray-300 dark:text-gray-600 mt-1">扫描后将自动分组相同SSID的网络</div>
+          <div class="py-12 text-center text-sm text-gray-400 dark:text-gray-500">
+            <div class="font-medium">{t($locale, 'noNetworkGroups')}</div>
+            <div class="mt-1 text-xs text-gray-300 dark:text-gray-600">{t($locale, 'noNetworkGroupsHint')}</div>
           </div>
         {:else}
-          <div class="space-y-3 max-w-3xl">
+          <div class="max-w-3xl space-y-3">
             {#each $networkGroups as group (group.ssid)}
-              <div class="bg-white dark:bg-gray-800/80 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div class="flex items-center justify-between mb-3">
+              <div class="rounded-xl border border-gray-200/50 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700/50 dark:bg-gray-800/80">
+                <div class="mb-3 flex items-center justify-between">
                   <div>
                     <h3 class="font-bold text-gray-900 dark:text-white">{group.ssid}</h3>
-                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {group.totalAps} 个 AP · {group.bands.join(', ')}GHz · 信号: {group.bestSignal} dBm
-                    </div>
+                    <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t($locale, 'apsSummary', { count: group.totalAps, bands: group.bands.join(', '), signal: group.bestSignal })}</div>
                   </div>
                   <div class="flex gap-1.5">
                     {#if group.supportsFastRoaming}
-                      <span class="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 rounded-md font-medium">802.11r</span>
+                      <span class="rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-900/50 dark:text-green-300">802.11r</span>
                     {/if}
                     {#if group.supportsBssTransition}
-                      <span class="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-md font-medium">802.11v</span>
+                      <span class="rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">802.11v</span>
                     {/if}
                   </div>
                 </div>
                 <div class="space-y-1.5">
                   {#each group.networks as net (net.bssid)}
-                    <div class="flex items-center justify-between text-xs p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-2.5 text-xs dark:bg-gray-700/50">
                       <div class="flex items-center gap-2">
-                        <span class={cn('w-2 h-2 rounded-full', net.signal >= -50 ? 'bg-green-500' : net.signal >= -70 ? 'bg-yellow-500' : 'bg-red-500')}></span>
+                        <span class={cn('h-2 w-2 rounded-full', net.signal >= -50 ? 'bg-green-500' : net.signal >= -70 ? 'bg-yellow-500' : 'bg-red-500')}></span>
                         <span class="font-mono">{net.bssid.toUpperCase()}</span>
                       </div>
                       <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400">
                         <span>CH {net.channel}</span>
-                        <span>{net.band}GHz</span>
+                        <span>{net.band} GHz</span>
                         <span class="font-medium tabular-nums">{net.signal} dBm</span>
                       </div>
                     </div>
@@ -572,20 +470,13 @@
           </div>
         {/if}
       </div>
-
-    {:else if activeTab === 'roaming'}
-      <!-- Roaming Test View -->
-      <div class="flex-1 overflow-y-auto bg-gray-50/30 dark:bg-gray-800/30">
-        <RoamingTest />
-      </div>
+    {:else}
+      <div class="flex-1 overflow-y-auto bg-gray-50/30 dark:bg-gray-800/30"><RoamingTest /></div>
     {/if}
   </div>
 
-  <!-- IE Details Modal -->
   {#if showIEDetails && $selectedNetwork}
-    <IEDetailsPanel
-      network={$selectedNetwork}
-      onClose={() => showIEDetails = false}
-    />
+    <IEDetailsPanel network={$selectedNetwork} onClose={() => showIEDetails = false} />
   {/if}
 </div>
+

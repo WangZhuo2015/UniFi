@@ -181,6 +181,7 @@ fn get_current_network() -> Result<Option<RawBeacon>, ScanError> {
             ie_data: vec![], // No IE data from CoreWLAN
             beacon_interval: 100,
             timestamp: now,
+            uptime_ms: None,
             connected: true,
         }))
     }
@@ -258,6 +259,7 @@ unsafe fn parse_cwnetwork(network: *mut Object, timestamp: u64) -> Option<RawBea
         ie_data,
         beacon_interval,
         timestamp,
+        uptime_ms: None,
         connected: false,
     })
 }

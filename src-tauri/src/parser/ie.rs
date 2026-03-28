@@ -4,6 +4,7 @@
 //! No external dependencies on platform-specific code.
 
 use crate::types::*;
+use crate::vendor::lookup_oui;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -65,7 +66,7 @@ pub fn parse_capabilities(ie_data: &[u8]) -> (
     let mut security = "open".to_string();
     let mut security_details = SecurityDetails::default();
     let mut bss_load = None;
-    let country_code = None;
+    let mut country_code = None;
     let mut wps = false;
     let mut supported_rates = Vec::new();
     
@@ -97,6 +98,14 @@ pub fn parse_capabilities(ie_data: &[u8]) -> (
                         station_count: u16::from_le_bytes([data[0], data[1]]),
                         available_capacity: u16::from_le_bytes([data[3], data[4]]),
                     });
+                }
+            }
+            7 => {
+                if len >= 2 {
+                    let code = String::from_utf8_lossy(&data[0..2]).trim().to_string();
+                    if !code.is_empty() {
+                        country_code = Some(code);
+                    }
                 }
             }
             45 => {
@@ -242,8 +251,8 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
 
     let caps = u16::from_le_bytes([data[0], data[1]]);
 
-    // Count spatial streams from MCS set
-    let mcs = &data[2..18];
+    // HT MCS set starts after HT Cap Info (2 bytes) and A-MPDU params (1 byte)
+    let mcs = &data[3..19];
     for i in 0..4 {
         if mcs[i] != 0 {
             features.spatial_streams = (i + 1) as u8;
@@ -264,8 +273,8 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 
     // A-MPDU
-    if data.len() >= 20 {
-        let ampdu = data[18];
+    if data.len() >= 3 {
+        let ampdu = data[2];
         features.ampdu_length = (ampdu & 0x03) + 1;
     }
 }
@@ -291,17 +300,19 @@ fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     // Spatial streams from MCS set
     if data.len() >= 8 {
         let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
-        let nss = (rx_mcs & 0x7) + 1;
-        features.spatial_streams = nss as u8;
+        let nss = count_supported_streams_from_mcs_map(rx_mcs);
+        if nss > 0 {
+            features.spatial_streams = nss;
+        }
     }
 }
 
 fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
-    if data.len() < 7 {
+    if data.len() < 19 {
         return;
     }
 
-    let phy_cap = u32::from_le_bytes([data[3], data[4], data[5], data[6]]);
+    let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
 
     // OFDMA
     features.ofdma = true;
@@ -318,6 +329,14 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 
     // Default spatial streams for WiFi 6
+    if data.len() >= 21 {
+        let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
+        let nss = count_supported_streams_from_mcs_map(rx_mcs);
+        if nss > 0 {
+            features.spatial_streams = nss;
+        }
+    }
+
     if features.spatial_streams == 0 {
         features.spatial_streams = 2;
     }
@@ -344,8 +363,19 @@ fn parse_eht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
     
     if features.spatial_streams == 0 {
-        features.spatial_streams = 4;
+        features.spatial_streams = 2;
     }
+}
+
+fn count_supported_streams_from_mcs_map(mcs_map: u16) -> u8 {
+    let mut count = 0u8;
+    for index in 0..8 {
+        let bits = ((mcs_map >> (index * 2)) & 0x03) as u8;
+        if bits != 0x03 {
+            count += 1;
+        }
+    }
+    count
 }
 
 fn parse_extended_capabilities(data: &[u8], protocols: &mut ProtocolExtensions) {
@@ -477,6 +507,9 @@ pub fn parse_all_ies(ie_data: &[u8]) -> IEDetails {
             _ => {}
         }
         
+        let parsed = parse_ie_content(id, data);
+        let (summary, vendor_name, display_fields) = describe_ie(id, data, &parsed);
+
         elements.push(ParsedIE {
             element_id: id,
             element_id_hex: format!("0x{:02x}", id),
@@ -487,7 +520,10 @@ pub fn parse_all_ies(ie_data: &[u8]) -> IEDetails {
             },
             length: len as u8,
             data_hex: hex::encode(data),
-            parsed: parse_ie_content(id, data),
+            summary,
+            vendor_name,
+            display_fields,
+            parsed,
         });
         
         pos += 2 + len;
@@ -512,6 +548,403 @@ pub fn parse_all_ies(ie_data: &[u8]) -> IEDetails {
         elements,
         detection_summary: detection,
     }
+}
+
+fn field(label: &str, value: impl Into<String>) -> ParsedField {
+    ParsedField {
+        label: label.to_string(),
+        value: value.into(),
+        highlighted: false,
+    }
+}
+
+fn highlighted_field(label: &str, value: impl Into<String>) -> ParsedField {
+    ParsedField {
+        label: label.to_string(),
+        value: value.into(),
+        highlighted: true,
+    }
+}
+
+fn format_vendor_oui(data: &[u8]) -> Option<String> {
+    if data.len() < 3 {
+        None
+    } else {
+        Some(format!("{:02X}:{:02X}:{:02X}", data[0], data[1], data[2]))
+    }
+}
+
+fn bool_text(value: bool) -> &'static str {
+    if value { "Supported" } else { "Not supported" }
+}
+
+fn describe_ie(
+    id: u8,
+    data: &[u8],
+    parsed: &HashMap<String, serde_json::Value>,
+) -> (String, Option<String>, Vec<ParsedField>) {
+    match id {
+        0 => {
+            let ssid = parsed
+                .get("ssid")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("<hidden>");
+            (
+                format!("SSID {}", ssid),
+                None,
+                vec![highlighted_field("SSID", ssid)],
+            )
+        }
+        1 | 50 => {
+            let rates = parsed
+                .get("rates")
+                .and_then(|value| value.as_str())
+                .unwrap_or("No rate information");
+            (
+                "Supported legacy/basic rates".to_string(),
+                None,
+                vec![field("Rates", rates)],
+            )
+        }
+        3 => {
+            let channel = parsed
+                .get("channel")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default();
+            (
+                format!("Primary channel {}", channel),
+                None,
+                vec![highlighted_field("Primary channel", channel.to_string())],
+            )
+        }
+        7 => {
+            let mut fields = Vec::new();
+            if data.len() >= 2 {
+                let country = String::from_utf8_lossy(&data[0..2]).trim().to_string();
+                if !country.is_empty() {
+                    fields.push(highlighted_field("Country", country.clone()));
+                    if data.len() >= 6 {
+                        fields.push(field("Triplet", format!("CH {}-{} / {} dBm", data[2], data[2] + data[3].saturating_sub(1), data[4])));
+                    }
+                    return (format!("Country {}", country), None, fields);
+                }
+            }
+            ("Country information".to_string(), None, fields)
+        }
+        11 => {
+            let stations = parsed
+                .get("stationCount")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default();
+            let utilization = parsed
+                .get("channelUtilization")
+                .and_then(|value| value.as_u64())
+                .map(|raw| ((raw as f32 / 255.0) * 100.0).round() as u64)
+                .unwrap_or_default();
+            (
+                format!("{} stations, {}% channel utilization", stations, utilization),
+                None,
+                vec![
+                    highlighted_field("Associated stations", stations.to_string()),
+                    field("Channel utilization", format!("{}%", utilization)),
+                ],
+            )
+        }
+        45 => describe_ht_capabilities(data),
+        48 => describe_rsn_information(data),
+        61 => describe_ht_operation(data),
+        70 => (
+            "802.11k radio measurement enabled".to_string(),
+            None,
+            vec![highlighted_field("RRM", "Enabled")],
+        ),
+        127 => describe_extended_capabilities(data),
+        191 => describe_vht_capabilities(data),
+        192 => describe_vht_operation(data),
+        221 => describe_vendor_specific(data),
+        255 if !data.is_empty() => match data[0] {
+            35 => describe_he_capabilities(data),
+            36 => describe_he_operation(data),
+            107 => (
+                "Multi-Link Operation element".to_string(),
+                None,
+                vec![highlighted_field("MLO", "Present")],
+            ),
+            108 => describe_eht_capabilities(data),
+            _ => (
+                format!("Extension element {}", data[0]),
+                None,
+                vec![field("Extension ID", data[0].to_string())],
+            ),
+        },
+        _ => (
+            "Raw information element".to_string(),
+            None,
+            vec![field("Bytes", data.len().to_string())],
+        ),
+    }
+}
+
+fn describe_ht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 3 {
+        return ("HT capabilities".to_string(), None, Vec::new());
+    }
+
+    let caps = u16::from_le_bytes([data[0], data[1]]);
+    let width = if (caps & 0x02) != 0 { "20/40 MHz" } else { "20 MHz" };
+    let short_gi = (caps & 0x0040) != 0 || (caps & 0x0080) != 0;
+    let txbf = (caps & 0x1000) != 0;
+    let streams = if data.len() >= 19 {
+        let mcs = &data[3..19];
+        (0..4).filter(|index| mcs[*index] != 0).count().max(1)
+    } else {
+        1
+    };
+
+    (
+        format!("Wi-Fi 4 PHY, {} stream(s), {}", streams, width),
+        None,
+        vec![
+            highlighted_field("Channel width", width),
+            highlighted_field("Spatial streams", streams.to_string()),
+            field("Short GI", bool_text(short_gi)),
+            field("Tx beamforming", bool_text(txbf)),
+        ],
+    )
+}
+
+fn describe_rsn_information(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    let (security, details) = parse_rsn(data);
+    (
+        format!("{} security", security.to_uppercase()),
+        None,
+        vec![
+            highlighted_field("Security", security.to_uppercase()),
+            field("Authentication", details.auth_method),
+            field("Cipher", details.cipher),
+            field("PMF", if details.pmf_required { "Required".to_string() } else if details.pmf_capable { "Capable".to_string() } else { "Not advertised".to_string() }),
+        ],
+    )
+}
+
+fn describe_ht_operation(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 2 {
+        return ("HT operation".to_string(), None, Vec::new());
+    }
+
+    let secondary_offset = match data[1] & 0x03 {
+        1 => "above",
+        3 => "below",
+        _ => "none",
+    };
+    let width = if secondary_offset == "none" { "20 MHz" } else { "40 MHz" };
+
+    (
+        format!("Primary CH {}, {}", data[0], width),
+        None,
+        vec![
+            highlighted_field("Primary channel", data[0].to_string()),
+            field("Secondary channel", secondary_offset),
+            field("Operating width", width),
+        ],
+    )
+}
+
+fn describe_extended_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    let bss_transition = data.get(2).map(|byte| (byte & 0x08) != 0).unwrap_or(false);
+    let wnm_sleep = data.get(2).map(|byte| (byte & 0x40) != 0).unwrap_or(false);
+
+    (
+        "Extended roaming and management capabilities".to_string(),
+        None,
+        vec![
+            highlighted_field("BSS transition (11v)", bool_text(bss_transition)),
+            field("WNM sleep", bool_text(wnm_sleep)),
+        ],
+    )
+}
+
+fn describe_vht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 8 {
+        return ("VHT capabilities".to_string(), None, Vec::new());
+    }
+
+    let caps = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
+    let streams = count_supported_streams_from_mcs_map(rx_mcs).max(1);
+    let su_bfer = (caps & (1 << 19)) != 0;
+    let su_bfee = (caps & (1 << 20)) != 0;
+    let mu_bfer = (caps & (1 << 21)) != 0;
+    let short_gi_80 = (caps & (1 << 5)) != 0;
+    let short_gi_160 = (caps & (1 << 6)) != 0;
+
+    (
+        format!("Wi-Fi 5 PHY, {} stream(s), VHT beamforming", streams),
+        None,
+        vec![
+            highlighted_field("Spatial streams", streams.to_string()),
+            field("Short GI 80 MHz", bool_text(short_gi_80)),
+            field("Short GI 160 MHz", bool_text(short_gi_160)),
+            field("SU beamformer", bool_text(su_bfer)),
+            field("SU beamformee", bool_text(su_bfee)),
+            field("MU beamformer", bool_text(mu_bfer)),
+        ],
+    )
+}
+
+fn describe_vht_operation(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 3 {
+        return ("VHT operation".to_string(), None, Vec::new());
+    }
+
+    let width = match data[0] {
+        1 => "80 MHz",
+        2 => "160 MHz",
+        3 => "80+80 MHz",
+        _ => "20/40 MHz",
+    };
+
+    (
+        format!("{} operation, center segment {}", width, data[1]),
+        None,
+        vec![
+            highlighted_field("Operating width", width),
+            field("Center segment 0", data[1].to_string()),
+            field("Center segment 1", data[2].to_string()),
+        ],
+    )
+}
+
+fn describe_vendor_specific(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    let vendor_oui = format_vendor_oui(data);
+    let vendor_name = vendor_oui
+        .as_deref()
+        .and_then(lookup_oui)
+        .map(|value| value.to_string());
+    let subtype = data.get(3).copied();
+
+    let mut fields = Vec::new();
+    if let Some(name) = &vendor_name {
+        fields.push(highlighted_field("Vendor", name.clone()));
+    }
+    if let Some(oui) = &vendor_oui {
+        fields.push(field("OUI", oui.clone()));
+    }
+    if let Some(subtype) = subtype {
+        fields.push(field("Subtype", format!("0x{:02X}", subtype)));
+    }
+
+    if matches!(vendor_oui.as_deref(), Some("00:50:F2")) {
+        match subtype {
+            Some(0x02) => {
+                return (
+                    "Microsoft WMM/WME information".to_string(),
+                    Some("Microsoft".to_string()),
+                    {
+                        fields.push(highlighted_field("Feature", "WMM / WME"));
+                        fields
+                    },
+                );
+            }
+            Some(0x04) => {
+                return (
+                    "Microsoft WPS information".to_string(),
+                    Some("Microsoft".to_string()),
+                    {
+                        fields.push(highlighted_field("Feature", "WPS"));
+                        fields
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    (
+        format!(
+            "{} vendor information",
+            vendor_name.clone().unwrap_or_else(|| "Vendor-specific".to_string())
+        ),
+        vendor_name,
+        fields,
+    )
+}
+
+fn describe_he_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 20 {
+        return ("HE capabilities".to_string(), None, Vec::new());
+    }
+
+    let phy0 = data[7];
+    let phy1 = data[8];
+    let phy3 = data[10];
+    let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
+    let streams = count_supported_streams_from_mcs_map(rx_mcs).max(1);
+
+    let width = if (phy0 & 0x08) != 0 {
+        "20/40/80/160 MHz"
+    } else if (phy0 & 0x04) != 0 {
+        "20/40/80 MHz"
+    } else {
+        "20/40 MHz"
+    };
+
+    (
+        format!("Wi-Fi 6 PHY, {} stream(s), {}", streams, width),
+        None,
+        vec![
+            highlighted_field("Channel widths", width),
+            highlighted_field("Spatial streams", streams.to_string()),
+            field("LDPC coding", bool_text((phy1 & 0x20) != 0)),
+            field("STBC Rx <= 80 MHz", bool_text((phy1 & 0x80) != 0)),
+            field("Full-bandwidth UL MU-MIMO", bool_text((phy3 & 0x20) != 0)),
+            field("SU beamformer", bool_text((phy3 & 0x80) != 0)),
+            field("SU beamformee", bool_text((phy3 & 0x01) != 0)),
+            field("MU beamformer", bool_text((phy3 & 0x02) != 0)),
+        ],
+    )
+}
+
+fn describe_he_operation(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 8 {
+        return ("HE operation".to_string(), None, Vec::new());
+    }
+
+    let bss_color = data.get(6).map(|byte| byte & 0x3f).unwrap_or_default();
+    (
+        format!("HE operation, BSS color {}", bss_color),
+        None,
+        vec![
+            highlighted_field("BSS color", bss_color.to_string()),
+            field("Default PE duration", data.get(3).copied().unwrap_or_default().to_string()),
+        ],
+    )
+}
+
+fn describe_eht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedField>) {
+    if data.len() < 9 {
+        return ("EHT capabilities".to_string(), None, Vec::new());
+    }
+
+    let phy_cap = u32::from_le_bytes([data[5], data[6], data[7], data[8]]);
+    let width = match (phy_cap & 0x03) as u8 {
+        3 => "Up to 320 MHz",
+        2 => "Up to 160 MHz",
+        1 => "Up to 80 MHz",
+        _ => "20/40 MHz",
+    };
+    let qam_4096 = (phy_cap & 0x000F0000) != 0;
+
+    (
+        format!("Wi-Fi 7 PHY, {}", width),
+        None,
+        vec![
+            highlighted_field("Channel widths", width),
+            field("4096-QAM", bool_text(qam_4096)),
+            field("Multi-link support", "Check MLO extension element"),
+        ],
+    )
 }
 
 pub fn parse_ie_content(id: u8, data: &[u8]) -> HashMap<String, serde_json::Value> {
