@@ -78,6 +78,8 @@ export interface PerformanceFeatures {
   twt: boolean;
   /** Spatial streams count */
   spatialStreams: number;
+  /** Maximum supported channel width in MHz */
+  maxSupportedWidth: number;
   /** Max data rate in Mbps */
   maxDataRate: number;
   /** TX Beamforming */
@@ -102,6 +104,19 @@ export interface BssLoad {
   stationCount: number;
   /** Available admission capacity */
   availableCapacity: number;
+}
+
+export interface LinkRates {
+  rxRateMbps?: number;
+  txRateMbps?: number;
+}
+
+export interface LocalAdapterCapabilities {
+  driverName: string;
+  supportedStandards: WiFiStandard[];
+  txSpatialStreams: number;
+  rxSpatialStreams: number;
+  maxSupportedWidth: number;
 }
 
 /** Security Details */
@@ -146,6 +161,7 @@ export interface Network {
   features: PerformanceFeatures;
   minDataRate: number;
   maxDataRate: number;
+  apPeakDataRate: number;
 
   // === Security ===
   security: Security;
@@ -183,6 +199,10 @@ export interface Network {
   lastSeen: number;        // timestamp
   seenAgeSecs: number;
   apUptimeSecs?: number;
+  linkRates?: LinkRates;
+  localAdapter?: LocalAdapterCapabilities;
+  clientPeakDataRate?: number;
+  clientSpatialStreams?: number;
 }
 
 /** Network Group - same SSID networks grouped together */

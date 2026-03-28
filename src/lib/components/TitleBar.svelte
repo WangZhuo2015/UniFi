@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { onMount } from 'svelte';
   import { locale, setLocale, t } from '$lib/i18n';
-  import type { Window as TauriWindow } from '@tauri-apps/api/window';
+  import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window';
 
   let isMaximized = $state(false);
   let isFocused = $state(true);
@@ -18,7 +18,6 @@
 
     void (async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
         appWindow = getCurrentWindow();
         isTauri = true;
         isMaximized = await appWindow.isMaximized();
@@ -65,11 +64,11 @@
 </script>
 
 <header
-  class="drag-region flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80"
+  class="flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80"
   class:opacity-80={!isFocused}
   data-testid="title-bar"
 >
-  <div class="no-drag flex min-w-0 items-center gap-2">
+  <div data-tauri-drag-region class="flex min-w-0 items-center gap-2">
     <div class="flex h-5 w-5 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm">
       <svg class="h-3 w-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
@@ -78,10 +77,11 @@
     <h1 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200" data-testid="app-title">UniFi</h1>
   </div>
 
-  <div class="absolute left-3 top-1/2 flex w-16 -translate-y-1/2 items-center gap-2 md:hidden"></div>
+  <div data-tauri-drag-region class="mx-3 min-w-0 flex-1"></div>
 
   <div class="no-drag flex items-center gap-1">
     <button
+      type="button"
       class="h-7 rounded-md px-2 text-xs text-gray-600 transition-colors duration-150 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:bg-gray-700/80"
       onclick={toggleLanguage}
       aria-label={t($locale, 'languageLabel')}
@@ -91,6 +91,7 @@
 
     {#if isTauri}
       <button
+        type="button"
         class="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200/80 dark:hover:bg-gray-700/80"
         onclick={minimize}
         aria-label={t($locale, 'minimize')}
@@ -100,6 +101,7 @@
         </svg>
       </button>
       <button
+        type="button"
         class="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200/80 dark:hover:bg-gray-700/80"
         onclick={toggleMaximize}
         aria-label={t($locale, 'maximize')}
@@ -115,6 +117,7 @@
         {/if}
       </button>
       <button
+        type="button"
         class="group flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-red-500 hover:text-white"
         onclick={close}
         aria-label={t($locale, 'close')}

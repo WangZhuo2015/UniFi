@@ -156,8 +156,9 @@ pub fn parse_capabilities(ie_data: &[u8]) -> (
                     }
                     108 => {
                         // EHT Capabilities (WiFi 7)
-                        standards.clear();
-                        standards.push("be".to_string());
+                        if !standards.contains(&"be".to_string()) {
+                            standards.push("be".to_string());
+                        }
                         parse_eht_capabilities(data, &mut features);
                     }
                     107 => {
@@ -240,6 +241,12 @@ pub fn detect_channel_width(ie_data: &[u8], _channel: u8, _band: Band) -> u16 {
     else { 20 }
 }
 
+fn update_max_supported_width(features: &mut PerformanceFeatures, width: u16) {
+    if width > features.max_supported_width {
+        features.max_supported_width = width;
+    }
+}
+
 // ============================================================================
 // Helper Parsers
 // ============================================================================
@@ -250,6 +257,7 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 
     let caps = u16::from_le_bytes([data[0], data[1]]);
+    update_max_supported_width(features, if (caps & 0x02) != 0 { 40 } else { 20 });
 
     // HT MCS set starts after HT Cap Info (2 bytes) and A-MPDU params (1 byte)
     let mcs = &data[3..19];
@@ -285,6 +293,8 @@ fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 
     let caps = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let supports_160 = (caps & (1 << 2)) != 0 || (caps & (1 << 3)) != 0;
+    update_max_supported_width(features, if supports_160 { 160 } else { 80 });
 
     // MU-MIMO
     features.mu_mimo = (caps & 0x1000) != 0;
@@ -313,6 +323,7 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 
     let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
+    let mut max_width = 80;
 
     // OFDMA
     features.ofdma = true;
@@ -324,9 +335,12 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     features.guard_interval = 800;
 
     // 160MHz support
-    if (phy_cap & 0x04) != 0 {
-        // Supports 160MHz
+    if (phy_cap & 0x08) != 0 {
+        max_width = 160;
+    } else if (phy_cap & 0x04) != 0 {
+        max_width = 80;
     }
+    update_max_supported_width(features, max_width);
 
     // Default spatial streams for WiFi 6
     if data.len() >= 21 {
@@ -354,8 +368,13 @@ fn parse_eht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     features.mu_mimo = true;
     features.max_qam = 4096;
     
-    // 320MHz support
-    let _320mhz = phy_cap & 0x03;
+    let max_width = match phy_cap & 0x03 {
+        0x03 => 320,
+        0x02 => 160,
+        0x01 => 80,
+        _ => 40,
+    };
+    update_max_supported_width(features, max_width);
     
     // 4096-QAM support
     if (phy_cap & 0x000F0000) != 0 {

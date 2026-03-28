@@ -59,6 +59,8 @@ pub struct RawBeacon {
     pub timestamp: u64,
     pub uptime_ms: Option<u64>,
     pub connected: bool,
+    pub link_rates: Option<LinkRates>,
+    pub local_adapter: Option<LocalAdapterCapabilities>,
 }
 
 impl RawBeacon {
@@ -158,6 +160,7 @@ pub struct PerformanceFeatures {
     pub bss_coloring: bool,
     pub twt: bool,
     pub spatial_streams: u8,
+    pub max_supported_width: u16,
     pub max_data_rate: u32,
     pub tx_beamforming: bool,
     pub ampdu_length: u8,
@@ -173,6 +176,23 @@ pub struct BssLoad {
     pub channel_utilization: u8,
     pub station_count: u16,
     pub available_capacity: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkRates {
+    pub rx_rate_mbps: Option<f32>,
+    pub tx_rate_mbps: Option<f32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAdapterCapabilities {
+    pub driver_name: String,
+    pub supported_standards: Vec<String>,
+    pub tx_spatial_streams: u8,
+    pub rx_spatial_streams: u8,
+    pub max_supported_width: u16,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -224,6 +244,7 @@ pub struct Network {
     pub features: PerformanceFeatures,
     pub min_data_rate: f32,
     pub max_data_rate: f32,
+    pub ap_peak_data_rate: f32,
     pub security: String,
     pub security_details: SecurityDetails,
     pub protocols: ProtocolExtensions,
@@ -241,6 +262,10 @@ pub struct Network {
     pub last_seen: u64,
     pub seen_age_secs: u64,
     pub ap_uptime_secs: Option<u64>,
+    pub link_rates: Option<LinkRates>,
+    pub local_adapter: Option<LocalAdapterCapabilities>,
+    pub client_peak_data_rate: Option<f32>,
+    pub client_spatial_streams: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

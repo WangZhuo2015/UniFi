@@ -32,3 +32,5 @@ Cargo.lock
 *.log
 beacon_frames_full.json
 wifi_scan_ie_data.json
+test-results/
+playwright-report/

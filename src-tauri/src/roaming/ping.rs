@@ -1,8 +1,8 @@
 //! Ping monitoring for roaming tests
 
-use std::process::Command;
 use std::time::Instant;
 use serde::{Deserialize, Serialize};
+use crate::process;
 
 /// Single ping result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ impl Default for PingConfig {
 pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResult {
     let timestamp_ms = start_time.elapsed().as_millis() as u64;
     
-    let output = Command::new("ping")
+    let output = process::command("ping")
         .arg("-c")
         .arg("1")
         .arg("-W")
@@ -193,7 +193,7 @@ pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResu
 pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResult {
     let timestamp_ms = start_time.elapsed().as_millis() as u64;
     
-    let output = Command::new("ping")
+    let output = process::command("ping")
         .arg("-c")
         .arg("1")
         .arg("-W")
@@ -246,7 +246,7 @@ pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResu
 pub fn ping_once(config: &PingConfig, seq: u32, start_time: Instant) -> PingResult {
     let timestamp_ms = start_time.elapsed().as_millis() as u64;
     
-    let output = Command::new("ping")
+    let output = process::command("ping")
         .arg("-n")
         .arg("1")
         .arg("-w")

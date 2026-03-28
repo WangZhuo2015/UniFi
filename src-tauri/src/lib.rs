@@ -6,6 +6,7 @@ mod types;
 mod scanner;
 mod parser;
 mod vendor;
+mod process;
 pub mod roaming;
 
 pub mod cli;
@@ -36,22 +37,31 @@ mod gui {
     }
 
     #[tauri::command]
-    pub fn scan_networks() -> Result<Vec<Network>, String> {
-        scanner::scan_networks().map_err(|e| e.to_string())
-    }
-
-    #[tauri::command]
-    pub fn scan_networks_with_scanner(scanner_name: String) -> Result<Vec<Network>, String> {
-        let mode = parse_scanner_mode(&scanner_name);
-        scanner::scan_networks_with_mode(mode).map_err(|e| e.to_string())
-    }
-
-    #[tauri::command]
-    pub fn current_network() -> Result<Option<Network>, String> {
-        let scanner = get_scanner();
-        scanner.current()
+    pub async fn scan_networks() -> Result<Vec<Network>, String> {
+        tauri::async_runtime::spawn_blocking(scanner::scan_networks)
+            .await
+            .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())
-            .map(|opt| opt.map(|b| parse_beacon(&b)))
+    }
+
+    #[tauri::command]
+    pub async fn scan_networks_with_scanner(scanner_name: String) -> Result<Vec<Network>, String> {
+        let mode = parse_scanner_mode(&scanner_name);
+        tauri::async_runtime::spawn_blocking(move || scanner::scan_networks_with_mode(mode))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn current_network() -> Result<Option<Network>, String> {
+        tauri::async_runtime::spawn_blocking(move || {
+            let scanner = get_scanner();
+            scanner.current().map(|opt| opt.map(|b| parse_beacon(&b)))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
     }
 
     #[tauri::command]

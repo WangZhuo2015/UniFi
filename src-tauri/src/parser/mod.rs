@@ -31,6 +31,17 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         &features,
         &supported_rates,
     );
+    let client_spatial_streams = raw.local_adapter.as_ref().map(|adapter| {
+        adapter
+            .tx_spatial_streams
+            .min(adapter.rx_spatial_streams)
+            .max(1)
+            .min(features.spatial_streams.max(1))
+    });
+    let client_peak_data_rate = raw
+        .local_adapter
+        .as_ref()
+        .and_then(|adapter| calculate_client_peak_data_rate(&standards, channel_width, &features, adapter, &supported_rates, raw.band));
     features.max_data_rate = max_data_rate.round() as u32;
 
     let ssid = raw.ssid_string();
@@ -80,6 +91,9 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         seen_age_secs: 0,
         ap_uptime_secs: raw.uptime_ms.map(|uptime| uptime / 1000),
         link_rates: raw.link_rates.clone(),
+        local_adapter: raw.local_adapter.clone(),
+        client_peak_data_rate,
+        client_spatial_streams,
     }
 }
 
@@ -136,6 +150,57 @@ fn calculate_max_rate(
         .max()
         .map(|rate| rate as f32)
         .unwrap_or(0.0)
+}
+
+fn calculate_client_peak_data_rate(
+    ap_standards: &[String],
+    channel_width: u16,
+    features: &PerformanceFeatures,
+    adapter: &LocalAdapterCapabilities,
+    supported_rates: &[u32],
+    band: Band,
+) -> Option<f32> {
+    let effective_streams = adapter
+        .tx_spatial_streams
+        .min(adapter.rx_spatial_streams)
+        .max(1)
+        .min(features.spatial_streams.max(1));
+    let effective_width = normalize_width_for_band(
+        adapter
+            .max_supported_width
+            .max(channel_width)
+            .min(features.max_supported_width.max(channel_width)),
+        band,
+    );
+    let common_standards = intersect_standards(ap_standards, &adapter.supported_standards);
+
+    if common_standards.is_empty() {
+        return None;
+    }
+
+    let mut local_features = features.clone();
+    local_features.spatial_streams = effective_streams;
+
+    Some(calculate_max_rate(
+        &common_standards,
+        effective_width,
+        &local_features,
+        supported_rates,
+    ))
+}
+
+fn intersect_standards(ap_standards: &[String], adapter_standards: &[String]) -> Vec<String> {
+    let mut common = Vec::new();
+
+    for standard in ["be", "ax", "ac", "n", "g", "a", "b"] {
+        if ap_standards.iter().any(|value| value == standard)
+            && adapter_standards.iter().any(|value| value == standard)
+        {
+            common.push(standard.to_string());
+        }
+    }
+
+    common
 }
 
 fn normalize_standards_for_band(mut standards: Vec<String>, band: Band) -> Vec<String> {
