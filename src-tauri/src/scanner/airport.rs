@@ -179,6 +179,7 @@ fn parse_network_dict(dict: &plist::Dictionary, now: u64) -> Result<RawBeacon, S
         uptime_ms: None,
         connected: false,
         link_rates: None,
+        local_adapter: None,
     })
 }
 
@@ -241,6 +242,7 @@ fn parse_current_info(output: &str) -> Option<RawBeacon> {
         uptime_ms: None,
         connected: true,
         link_rates: None,
+        local_adapter: None,
     })
 }
 
@@ -280,6 +282,7 @@ impl CurrentNetworkInfo {
             uptime_ms: None,
             connected: true,
             link_rates: None,
+            local_adapter: None,
         }
     }
 }

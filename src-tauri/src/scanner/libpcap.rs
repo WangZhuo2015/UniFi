@@ -473,6 +473,7 @@ fn parse_beacon_frame(data: &[u8], timestamp: u64, signal_dbm: i16) -> Option<Ra
         uptime_ms: None,
         connected: false,
         link_rates: None,
+        local_adapter: None,
     })
 }
 
