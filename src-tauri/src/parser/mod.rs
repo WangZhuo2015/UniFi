@@ -60,7 +60,8 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         .and_then(|adapter| calculate_client_peak_data_rate(&standards, channel_width, &features, adapter, &supported_rates, raw.band));
     features.max_data_rate = max_data_rate.round() as u32;
 
-    let ssid = raw.ssid_string();
+    // Get SSID from raw beacon or parse from IE data
+    let ssid = raw.ssid_string().or_else(|| parse_ssid_from_ie(&raw.ie_data));
     let mut vendor = lookup_vendor(&bssid);
     if vendor == "Unknown" || vendor == "Locally Administered" {
         if let Some(ie_vendor) = lookup_vendor_from_ie(&raw.ie_data) {
@@ -279,4 +280,25 @@ fn ofdm_rate_mbps(channel_width: u16, mcs: usize, streams: u32) -> f32 {
 
 fn round_rate(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
+}
+
+/// Parse SSID from IE data (IE ID 0)
+fn parse_ssid_from_ie(ie_data: &[u8]) -> Option<String> {
+    let mut pos = 0;
+    while pos + 1 < ie_data.len() {
+        let id = ie_data[pos];
+        let len = ie_data[pos + 1] as usize;
+
+        if pos + 2 + len > ie_data.len() {
+            break;
+        }
+
+        if id == 0 && len > 0 {
+            let ssid_bytes = &ie_data[pos + 2..pos + 2 + len];
+            return String::from_utf8(ssid_bytes.to_vec()).ok();
+        }
+
+        pos += 2 + len;
+    }
+    None
 }

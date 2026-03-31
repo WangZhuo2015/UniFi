@@ -13,6 +13,7 @@ pub mod cli;
 
 pub use types::*;
 pub use scanner::{get_scanner, get_scanner_with_mode, list_scanners, ScannerMode};
+pub use parser::{parse_beacon, parse_all_ies};
 pub use roaming::{RoamingMonitor, RoamingTestConfig, RoamingTestResult, PingConfig};
 
 // ============================================================================

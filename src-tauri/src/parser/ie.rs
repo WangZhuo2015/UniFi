@@ -535,12 +535,14 @@ fn parse_vht_operation(data: &[u8]) -> Option<ChannelInfo> {
 
 /// Parse HE Capabilities - returns detailed info including OFDMA and TWT
 fn parse_he_capabilities_detailed(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<OfdmaInfo>, Option<TwtInfo>, Option<McsInfo>) {
+    // data[0] = Extension ID (35), actual HE data starts at data[1]
+    // Need at least 21 bytes total (1 ExtID + 20 HE data)
     if data.len() < 21 {
         return (None, None, None, None);
     }
 
-    // HE MAC Capabilities (bytes 2-6)
-    let mac_cap = &data[2..7];
+    // HE MAC Capabilities (bytes 1-6 of data, which is bytes 0-5 of HE MAC Cap Info)
+    let mac_cap = &data[1..6];
 
     // TWT capabilities from MAC Capabilities
     // Bit 5: TWT Requester support
@@ -559,12 +561,13 @@ fn parse_he_capabilities_detailed(data: &[u8]) -> (Option<SpatialStreamInfo>, Op
         None
     };
 
-    // HE PHY Capabilities (bytes 7-11)
+    // HE PHY Capabilities (bytes 7-17 of data)
+    // phy_cap at data[7..11] (first 4 bytes of PHY caps)
     let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
 
     // OFDMA support
-    // DL OFDMA: PHY bit 79 (byte 9, bit 7)
-    // UL OFDMA: PHY bit 80 (byte 10, bit 0)
+    // DL OFDMA: PHY bit 79 (byte 9, bit 7) = data[9] bit 7
+    // UL OFDMA: PHY bit 80 (byte 10, bit 0) = data[10] bit 0
     let dl_ofdma = (data[9] & 0x80) != 0;
     let ul_ofdma = (data[10] & 0x01) != 0;
 
@@ -585,32 +588,43 @@ fn parse_he_capabilities_detailed(data: &[u8]) -> (Option<SpatialStreamInfo>, Op
         None
     };
 
-    // Spatial streams from HE MCS map (bytes 18-21)
-    let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
-    let tx_mcs = u16::from_le_bytes([data[20], data[21]]);
-    let rx_nss = count_supported_streams_from_mcs_map(rx_mcs);
-    let tx_nss = count_supported_streams_from_mcs_map(tx_mcs);
+    // Spatial streams from HE MCS map (bytes 18-21 of data)
+    // Need data[18..22]
+    if data.len() >= 22 {
+        let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
+        let tx_mcs = u16::from_le_bytes([data[20], data[21]]);
+        let rx_nss = count_supported_streams_from_mcs_map(rx_mcs);
+        let tx_nss = count_supported_streams_from_mcs_map(tx_mcs);
 
-    let ss_info = if rx_nss > 0 {
-        Some(SpatialStreamInfo {
-            tx_streams: Some(tx_nss),
-            rx_streams: Some(rx_nss),
-            client_tx: None,
-            client_rx: None,
-            effective_streams: None,
-        })
+        let ss_info = if rx_nss > 0 {
+            Some(SpatialStreamInfo {
+                tx_streams: Some(tx_nss),
+                rx_streams: Some(rx_nss),
+                client_tx: None,
+                client_rx: None,
+                effective_streams: None,
+            })
+        } else {
+            None
+        };
+
+        // HE supports up to 1024-QAM (MCS 10-11)
+        let mcs_info = McsInfo {
+            max_mcs: Some(11),
+            current_mcs: None,
+            max_modulation: Some(Modulation::QAM1024),
+        };
+
+        (ss_info, ofdma_info, twt_info, Some(mcs_info))
     } else {
-        None
-    };
-
-    // HE supports up to 1024-QAM (MCS 10-11)
-    let mcs_info = McsInfo {
-        max_mcs: Some(11),
-        current_mcs: None,
-        max_modulation: Some(Modulation::QAM1024),
-    };
-
-    (ss_info, ofdma_info, twt_info, Some(mcs_info))
+        // Default MCS info for WiFi 6
+        let mcs_info = McsInfo {
+            max_mcs: Some(11),
+            current_mcs: None,
+            max_modulation: Some(Modulation::QAM1024),
+        };
+        (None, ofdma_info, twt_info, Some(mcs_info))
+    }
 }
 
 /// Apply HE capabilities to PerformanceFeatures
