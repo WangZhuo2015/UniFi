@@ -35,8 +35,10 @@ pub const EXT_MLO: u8 = 107;
 pub const EXT_EHT_CAPS: u8 = 108;
 
 // WiFi standard names as static strings - no heap allocation
+#[allow(dead_code)]
 pub const STD_B: &str = "b";
 pub const STD_G: &str = "g";
+#[allow(dead_code)]
 pub const STD_A: &str = "a";
 pub const STD_N: &str = "n";
 pub const STD_AC: &str = "ac";
@@ -335,8 +337,8 @@ pub fn parse_capabilities(ie_data: &[u8]) -> ParsedCapabilities {
     result
 }
 
-/// Detect channel width - convenience function that reuses parse_capabilities.
-/// This is now a simple wrapper, not a separate implementation.
+/// Detect channel width - convenience wrapper around parse_capabilities.
+#[allow(dead_code)]
 pub fn detect_channel_width(ie_data: &[u8], _channel: u8, _band: Band) -> u16 {
     parse_capabilities(ie_data).channel_width
 }
@@ -351,7 +353,6 @@ fn parse_ht_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<McsInfo>) {
         return (None, None);
     }
 
-    let caps = u16::from_le_bytes([data[0], data[1]]);
     let mcs = &data[3..19];
 
     // Count spatial streams from MCS set
@@ -591,10 +592,6 @@ fn parse_he_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<OfdmaInfo>, 
         None
     };
 
-    // HE PHY Capabilities (bytes 7-17 of data)
-    // phy_cap at data[7..11] (first 4 bytes of PHY caps)
-    let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
-
     // OFDMA support
     // DL OFDMA: PHY bit 79 (byte 9, bit 7) = data[9] bit 7
     // UL OFDMA: PHY bit 80 (byte 10, bit 0) = data[10] bit 0
@@ -730,8 +727,7 @@ fn parse_eht_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<Wifi7Featur
     let multi_ru = (phy_cap & 0x01000000) != 0;
 
     // EHT MCS map (bytes 9+)
-    // For 320MHz and 4096-QAM
-    let supports_320 = (phy_cap & 0x03) == 0x03;
+    // For 4096-QAM
     let supports_4096qam = (phy_cap & 0x000F0000) != 0;
 
     let wifi7_features = Some(Wifi7Features {
@@ -836,7 +832,7 @@ fn parse_mlo(data: &[u8]) -> Option<MloInfo> {
 
     // Basic MLO info parsing
     // The structure is complex, but we can extract basic link count
-    let mlo_type = (data[1] & 0x07);
+    let _mlo_type = data[1] & 0x07;
 
     // For now, return basic info
     Some(MloInfo {
@@ -960,17 +956,16 @@ fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
                 let mut key_mgmt = Vec::new();
                 let mut has_sae = false;
                 let mut has_psk = false;
-                let mut has_eap = false;
 
                 for i in 0..auth_count.min(4) {
                     let suite_offset = auth_suite_offset + i * 4;
                     if suite_offset + 4 <= data.len() {
                         let auth_type = data[suite_offset + 3];
                         match auth_type {
-                            1 => { key_mgmt.push("eap".to_string()); has_eap = true; }
+                            1 => key_mgmt.push("eap".to_string()),
                             2 => { key_mgmt.push("psk".to_string()); has_psk = true; }
                             4 => { key_mgmt.push("sae".to_string()); has_sae = true; }
-                            8 => { key_mgmt.push("eap".to_string()); has_eap = true; }
+                            8 => key_mgmt.push("eap".to_string()),
                             _ => key_mgmt.push("unknown".to_string()),
                         }
                     }
