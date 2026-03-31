@@ -15,24 +15,24 @@ impl Nl80211Scanner {
     pub fn new() -> Self {
         Self { interface: None }
     }
-    
+
     pub fn with_interface(iface: impl Into<String>) -> Self {
         Self { interface: Some(iface.into()) }
     }
-    
+
     fn find_interface(&self) -> Result<String, ScanError> {
         if let Some(ref iface) = self.interface {
             return Ok(iface.clone());
         }
-        
+
         // Try to find a wireless interface
         let output = Command::new("iw")
             .args(["dev"])
             .output()
             .map_err(|e| ScanError::CommandFailed(e.to_string()))?;
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse output: "Interface wlan0"
         for line in stdout.lines() {
             let line = line.trim();
@@ -40,7 +40,7 @@ impl Nl80211Scanner {
                 return Ok(line.split('\t').nth(1).unwrap_or("wlan0").to_string());
             }
         }
-        
+
         // Fallback
         Err(ScanError::NoInterface)
     }
@@ -51,16 +51,16 @@ impl Scanner for Nl80211Scanner {
         let iface = self.find_interface()?;
         scan_with_iw(&iface)
     }
-    
+
     fn current(&self) -> Result<Option<RawBeacon>, ScanError> {
         let iface = self.find_interface()?;
         current_with_iwlink(&iface)
     }
-    
+
     fn name(&self) -> &'static str {
         "Linux nl80211"
     }
-    
+
     fn requires_privilege(&self) -> bool {
         true // iw scan requires root
     }
@@ -71,7 +71,7 @@ fn scan_with_iw(iface: &str) -> Result<Vec<RawBeacon>, ScanError> {
         .args(["dev", iface, "scan"])
         .output()
         .map_err(|e| ScanError::CommandFailed(e.to_string()))?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("Operation not permitted") {
@@ -79,7 +79,7 @@ fn scan_with_iw(iface: &str) -> Result<Vec<RawBeacon>, ScanError> {
         }
         return Err(ScanError::CommandFailed(stderr.into()));
     }
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_iw_scan(&stdout)
 }
@@ -90,18 +90,22 @@ fn parse_iw_scan(output: &str) -> Result<Vec<RawBeacon>, ScanError> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     let mut current: Option<RawBeacon> = None;
-    
+    let mut ie_data: Vec<u8> = Vec::new();
+
     for line in output.lines() {
         let line = line.trim();
-        
+
         // New BSS entry
         if line.starts_with("BSS ") {
-            if let Some(beacon) = current.take() {
+            // Save previous beacon
+            if let Some(mut beacon) = current.take() {
+                beacon.ie_data = ie_data.clone();
                 results.push(beacon);
             }
-            
+            ie_data.clear();
+
             // Parse BSSID from "BSS xx:xx:xx:xx:xx:xx"
             let bssid_str = line.split(' ').nth(1).unwrap_or("");
             current = Some(RawBeacon {
@@ -111,30 +115,106 @@ fn parse_iw_scan(output: &str) -> Result<Vec<RawBeacon>, ScanError> {
             });
             continue;
         }
-        
+
         let beacon = match &mut current {
             Some(b) => b,
             None => continue,
         };
-        
+
         if line.starts_with("SSID:") {
             beacon.ssid = Some(line[5..].trim().as_bytes().to_vec());
+            // Add SSID IE (ID 0)
+            let ssid_bytes = line[5..].trim().as_bytes();
+            ie_data.push(0); // Element ID
+            ie_data.push(ssid_bytes.len() as u8); // Length
+            ie_data.extend_from_slice(ssid_bytes);
         } else if line.starts_with("freq:") {
             let freq: u32 = line[5..].trim().parse().unwrap_or(0);
             beacon.channel = freq_to_channel(freq);
             beacon.band = Band::from_channel(beacon.channel);
+            // Add DS Parameter Set IE (ID 3) for channel
+            ie_data.push(3); // Element ID
+            ie_data.push(1); // Length
+            ie_data.push(beacon.channel);
         } else if line.starts_with("signal:") {
             let sig_str = line[7..].trim();
             beacon.signal_dbm = sig_str.replace(" dBm", "").parse().unwrap_or(-100);
         } else if line.starts_with("beacon interval:") {
             beacon.beacon_interval = line[16..].trim().parse().unwrap_or(100);
+        } else if line.contains("Supported rates:") {
+            // Parse supported rates and add IE 1
+            let rates_part = line.split(':').nth(1).unwrap_or("");
+            let mut rates = Vec::new();
+            for rate_str in rates_part.split_whitespace() {
+                if let Ok(rate) = rate_str.replace('*', "").parse::<f32>() {
+                    // Convert Mbps to 0.5 Mbps units, set MSB for basic rates
+                    let rate_unit = (rate * 2.0) as u8;
+                    rates.push(rate_unit);
+                }
+            }
+            if !rates.is_empty() {
+                ie_data.push(1); // Element ID
+                ie_data.push(rates.len() as u8);
+                ie_data.extend_from_slice(&rates);
+            }
+        } else if line.contains("HT capabilities:") {
+            // Mark as WiFi 4 (n)
+            // Add minimal HT Capabilities IE (ID 45)
+            // This is a simplified version - real parsing would need more work
+            let ht_cap: Vec<u8> = vec![
+                45, 26, // IE header: ID 45, length 26
+                0x6c, 0x01, 0x03, 0x00, // HT Capabilities Info: 40MHz, Short GI
+                0x00, // A-MPDU params
+                0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MCS set (1 stream)
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Extended MCS
+                0x00, 0x00, 0x00, 0x00, // HT extended capabilities
+            ];
+            ie_data.extend_from_slice(&ht_cap);
+        } else if line.contains("VHT capabilities:") {
+            // Mark as WiFi 5 (ac)
+            // Add minimal VHT Capabilities IE (ID 191)
+            let vht_cap: Vec<u8> = vec![
+                191, 12, // IE header: ID 191, length 12
+                0x38, 0x71, 0x00, 0x00, // VHT Capabilities Info: 160MHz, SU beamformer/formee
+                0x00, 0x00, 0xff, 0x00, // RX MCS map, TX MCS map
+                0x00, 0x00, 0x00, 0x00, // Reserved
+            ];
+            ie_data.extend_from_slice(&vht_cap);
+        } else if line.contains("HE capabilities:") || line.contains("HE Capabilities:") {
+            // Mark as WiFi 6 (ax)
+            // Add extended HE Capabilities IE (ID 255, ext ID 35)
+            let he_cap: Vec<u8> = vec![
+                255, 21, // IE header: ID 255 (extended), length
+                35, // Extension ID: HE Capabilities
+                0x0c, 0x00, 0x00, 0x00, // MAC Capabilities
+                0x0c, 0x00, 0x00, 0x00, // PHY Capabilities (80MHz, SU beamformer)
+                0x00, 0x00, 0x00, 0x00, // More PHY capabilities
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // TX/RX MCS map
+            ];
+            ie_data.extend_from_slice(&he_cap);
+        } else if line.contains("EHT capabilities:") || line.contains("HE 6 GHz Band Capabilities:") {
+            // Mark as WiFi 7 (be) or WiFi 6E
+            // Add extended EHT Capabilities IE (ID 255, ext ID 108)
+            let eht_cap: Vec<u8> = vec![
+                255, 13, // IE header
+                108, // Extension ID: EHT Capabilities
+                0x00, 0x00, 0x00, 0x00, // MAC Capabilities
+                0x03, 0x00, 0x00, 0x00, // PHY Capabilities (320MHz)
+                0x00, 0x00, 0x00, // MCS map
+            ];
+            ie_data.extend_from_slice(&eht_cap);
+        } else if line.contains("RSN:") || line.contains("WPA:") {
+            // Parse RSN/WPA for security - simplified
+            // Real implementation would parse the full RSN IE
         }
     }
-    
-    if let Some(beacon) = current {
+
+    // Save last beacon
+    if let Some(mut beacon) = current {
+        beacon.ie_data = ie_data;
         results.push(beacon);
     }
-    
+
     Ok(results)
 }
 
