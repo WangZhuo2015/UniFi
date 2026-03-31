@@ -1470,7 +1470,7 @@ fn describe_eht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<Parsed
 
 pub fn parse_ie_content(id: u8, data: &[u8]) -> HashMap<String, serde_json::Value> {
     let mut result = HashMap::new();
-    
+
     match id {
         0 => {
             if let Ok(ssid) = std::str::from_utf8(data) {
@@ -1503,6 +1503,471 @@ pub fn parse_ie_content(id: u8, data: &[u8]) -> HashMap<String, serde_json::Valu
         }
         _ => {}
     }
-    
+
     result
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // IE Name Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ie_name_common_elements() {
+        assert_eq!(ie_name(0), "SSID");
+        assert_eq!(ie_name(1), "Supported Rates");
+        assert_eq!(ie_name(3), "DS Parameter Set");
+        assert_eq!(ie_name(7), "Country");
+        assert_eq!(ie_name(11), "QBSS Load");
+        assert_eq!(ie_name(45), "HT Capabilities");
+        assert_eq!(ie_name(48), "RSN");
+        assert_eq!(ie_name(61), "HT Operation");
+        assert_eq!(ie_name(127), "Extended Capabilities");
+        assert_eq!(ie_name(191), "VHT Capabilities");
+        assert_eq!(ie_name(192), "VHT Operation");
+        assert_eq!(ie_name(221), "Vendor Specific");
+        assert_eq!(ie_name(255), "Extended Element");
+        assert_eq!(ie_name(99), "Unknown");
+    }
+
+    #[test]
+    fn test_ext_ie_name() {
+        assert_eq!(ext_ie_name(35), "HE Capabilities");
+        assert_eq!(ext_ie_name(36), "HE Operation");
+        assert_eq!(ext_ie_name(106), "EHT Operation");
+        assert_eq!(ext_ie_name(107), "EHT Multi-Link");
+        assert_eq!(ext_ie_name(108), "EHT Capabilities");
+        assert_eq!(ext_ie_name(99), "Unknown Extension");
+    }
+
+    // -------------------------------------------------------------------------
+    // RSN Parsing Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_rsn_wpa2_psk() {
+        // RSN IE with WPA2-PSK, CCMP
+        // Format: version(2) + group_cipher(4) + pairwise_count(2) + pairwise(4) + auth_count(2) + auth(4)
+        let rsn_data: Vec<u8> = vec![
+            0x01, 0x00,  // Version 1
+            0x00, 0x0F, 0xAC, 0x04,  // Group cipher: CCMP (OUI 00-0F-AC, type 4)
+            0x01, 0x00,  // 1 pairwise cipher
+            0x00, 0x0F, 0xAC, 0x04,  // CCMP
+            0x01, 0x00,  // 1 auth suite
+            0x00, 0x0F, 0xAC, 0x02,  // PSK
+            0x00, 0x00,  // RSN capabilities
+        ];
+
+        let (security, details) = parse_rsn(&rsn_data);
+        assert_eq!(security, "wpa2");
+        assert_eq!(details.auth_method, "psk");
+        assert_eq!(details.cipher, "ccmp");
+        assert!(!details.is_enterprise);
+    }
+
+    #[test]
+    fn test_parse_rsn_wpa3_sae() {
+        // RSN IE with WPA3-SAE
+        // Note: Auth type 8 = SAE in WPA3 context
+        let rsn_data: Vec<u8> = vec![
+            0x01, 0x00,  // Version 1
+            0x00, 0x0F, 0xAC, 0x04,  // Group cipher: CCMP
+            0x01, 0x00,  // 1 pairwise cipher
+            0x00, 0x0F, 0xAC, 0x04,  // CCMP
+            0x01, 0x00,  // 1 auth suite
+            0x00, 0x0F, 0xAC, 0x04,  // Auth type 4 = SAE for WPA3-Personal
+            0x80, 0x00,  // RSN capabilities with PMF capable
+        ];
+
+        let (security, details) = parse_rsn(&rsn_data);
+        assert_eq!(security, "wpa3");
+        assert_eq!(details.auth_method, "sae");
+        assert!(details.sae);
+    }
+
+    #[test]
+    fn test_parse_rsn_short_data() {
+        let short_data = vec![0x01, 0x00];
+        let (security, _details) = parse_rsn(&short_data);
+        assert_eq!(security, "open");
+    }
+
+    // -------------------------------------------------------------------------
+    // HT Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ht_capabilities_detailed() {
+        // Minimal HT Capabilities IE (26 bytes)
+        let mut ht_data = vec![0u8; 26];
+        ht_data[0] = 0x6C;  // HT Capabilities Info: 40MHz + LDPC
+        ht_data[1] = 0x01;  // 40MHz capable
+        ht_data[2] = 0x03;  // A-MPDU params
+        ht_data[3] = 0xFF;  // MCS set (1 stream, MCS 0-7)
+
+        let (ss_info, mcs_info) = parse_ht_capabilities_detailed(&ht_data);
+
+        assert!(ss_info.is_some());
+        let ss = ss_info.unwrap();
+        assert_eq!(ss.tx_streams, Some(1));
+        assert_eq!(ss.rx_streams, Some(1));
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM64));
+    }
+
+    // -------------------------------------------------------------------------
+    // VHT Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_vht_capabilities_detailed() {
+        // Minimal VHT Capabilities IE (12 bytes)
+        let mut vht_data = vec![0u8; 12];
+        vht_data[0] = 0x38;  // VHT Capabilities: 160MHz + SU beamformer
+        vht_data[4] = 0xFF;  // RX MCS map (1 stream)
+        vht_data[6] = 0xFF;  // TX MCS map (1 stream)
+
+        let (_ss_info, mcs_info) = parse_vht_capabilities_detailed(&vht_data);
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM256));
+    }
+
+    // -------------------------------------------------------------------------
+    // HE Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_he_capabilities_detailed() {
+        // Minimal HE Capabilities IE (21+ bytes)
+        let mut he_data = vec![0u8; 22];
+        he_data[0] = 35;  // Extension ID: HE Capabilities
+        he_data[7] = 0x0C;  // PHY capabilities: 80MHz
+        he_data[9] = 0x80;  // DL OFDMA
+        he_data[10] = 0x03; // UL OFDMA + more
+
+        let (_ss_info, ofdma_info, _twt_info, mcs_info) = parse_he_capabilities_detailed(&he_data);
+
+        assert!(ofdma_info.is_some());
+        let ofdma = ofdma_info.unwrap();
+        assert!(ofdma.dl_ofdma);
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM1024));
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel Width Detection Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_detect_channel_width_ht_40() {
+        // IE data with HT Capabilities indicating 40MHz
+        // HT Capabilities: bit 1 of byte 0 = 40MHz support
+        // 0x02 = 0000 0010, bit 1 is set (40MHz capable)
+
+        // Build proper IE data: ID(45) + Length(26) + 26 bytes of data
+        let mut ie_data = vec![45, 26];  // IE header
+        ie_data.push(0x02);  // First byte with bit 1 set (40MHz)
+        ie_data.extend_from_slice(&[0u8; 25]);  // Remaining 25 bytes
+
+        // Verify data length
+        assert_eq!(ie_data.len(), 28, "IE data should be 28 bytes");
+
+        let width = detect_channel_width(&ie_data, 6, Band::Ghz2_4);
+        assert_eq!(width, 40);
+    }
+
+    #[test]
+    fn test_detect_channel_width_vht_80() {
+        // IE data with VHT Operation indicating 80MHz
+        let ie_data = vec![
+            192, 3,  // VHT Operation IE
+            1,  // Channel width: 80MHz
+            42, 0,  // Center segments
+        ];
+
+        let width = detect_channel_width(&ie_data, 36, Band::Ghz5);
+        assert_eq!(width, 80);
+    }
+
+    #[test]
+    fn test_detect_channel_width_vht_160() {
+        // IE data with VHT Operation indicating 160MHz
+        let ie_data = vec![
+            192, 3,  // VHT Operation IE
+            2,  // Channel width: 160MHz
+            114, 0,  // Center segments
+        ];
+
+        let width = detect_channel_width(&ie_data, 100, Band::Ghz5);
+        assert_eq!(width, 160);
+    }
+
+    #[test]
+    fn test_detect_channel_width_default() {
+        // Empty IE data should return 20MHz
+        let ie_data = vec![];
+        let width = detect_channel_width(&ie_data, 6, Band::Ghz2_4);
+        assert_eq!(width, 20);
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_capabilities_empty() {
+        let ie_data = vec![];
+        let (standards, features, _, security, _, _, _, _, _) = parse_capabilities(&ie_data);
+
+        assert_eq!(standards, vec!["g"]);
+        assert_eq!(security, "open");
+        assert_eq!(features.spatial_streams, 0);
+    }
+
+    #[test]
+    fn test_parse_capabilities_ht() {
+        // SSID IE + HT Capabilities IE
+        let mut ie_data = vec![
+            0, 4, b'T', b'e', b's', b't',  // SSID
+        ];
+        ie_data.push(45);  // HT Capabilities
+        ie_data.push(26);
+        ie_data.extend_from_slice(&[0x6C, 0x01]);  // 40MHz
+        ie_data.extend_from_slice(&[0u8; 24]);  // Rest of HT caps
+
+        let (standards, _features, _, _, _, _, _, _, _) = parse_capabilities(&ie_data);
+
+        assert!(standards.contains(&"n".to_string()));
+    }
+
+    #[test]
+    fn test_parse_capabilities_vht() {
+        // VHT Capabilities IE
+        let mut ie_data = vec![
+            191, 12,  // VHT Capabilities
+        ];
+        ie_data.extend_from_slice(&[0u8; 12]);
+
+        let (standards, features, _, _, _, _, _, _, _) = parse_capabilities(&ie_data);
+
+        assert!(standards.contains(&"ac".to_string()));
+        assert_eq!(features.max_qam, 256);
+    }
+
+    #[test]
+    fn test_parse_capabilities_he() {
+        // Extended HE Capabilities IE - need proper format
+        // Format: 255 (ext ID) + length + ext_id + data
+        let mut ie_data = vec![
+            255, 22,  // Extended IE: ID=255, Length=22
+            35,  // HE Capabilities extension ID
+        ];
+        ie_data.extend_from_slice(&[0u8; 21]);  // 21 bytes of HE data
+
+        let (standards, features, _, _, _, _, _, _, _) = parse_capabilities(&ie_data);
+
+        assert!(standards.contains(&"ax".to_string()));
+        assert_eq!(features.max_qam, 1024);
+    }
+
+    #[test]
+    fn test_parse_capabilities_eht() {
+        // Extended EHT Capabilities IE
+        let mut ie_data = vec![
+            255, 14,  // Extended IE
+            108,  // EHT Capabilities extension ID
+        ];
+        ie_data.extend_from_slice(&[0u8; 13]);
+
+        let (standards, features, _, _, _, _, _, _, _) = parse_capabilities(&ie_data);
+
+        assert!(standards.contains(&"be".to_string()));
+        assert_eq!(features.max_qam, 4096);
+    }
+
+    // -------------------------------------------------------------------------
+    // Extended Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_extended_capabilities_detailed() {
+        // Extended Capabilities IE with various bits set
+        let ext_caps = vec![
+            0x00,  // Byte 0
+            0x10,  // Byte 1: Bit 4 = RRM
+            0x08,  // Byte 2: Bit 3 = BSS Transition
+            0x10,  // Byte 3: Bit 4 = FT over DS
+        ];
+
+        let mut protocols = ProtocolExtensions::default();
+        parse_extended_capabilities_detailed(&ext_caps, &mut protocols);
+
+        assert!(protocols.rrm);
+        assert!(protocols.bss_transition);
+        assert!(protocols.ft_over_ds);
+        assert!(protocols.ft);
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_all_ies Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_all_ies() {
+        // SSID IE
+        let ie_data = vec![
+            0, 4, b'T', b'e', b's', b't',  // SSID = "Test"
+        ];
+
+        let details = parse_all_ies(&ie_data);
+
+        assert_eq!(details.total_length, 6);
+        assert_eq!(details.elements.len(), 1);
+        assert_eq!(details.elements[0].name, "SSID");
+    }
+
+    // -------------------------------------------------------------------------
+    // HT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ht_operation_40mhz() {
+        // HT Operation with secondary channel above
+        let ht_op = vec![
+            6,    // Primary channel
+            0x01, // Secondary channel above
+            0x00, // Other info
+        ];
+
+        let channel_info = parse_ht_operation(&ht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.primary, 6);
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz40);
+        assert!(info.secondary_offset.is_some());
+    }
+
+    #[test]
+    fn test_parse_ht_operation_20mhz() {
+        // HT Operation with no secondary channel - need at least 3 bytes
+        let ht_op = vec![
+            6,    // Primary channel
+            0x00, // No secondary
+            0x00, // Need third byte for length check
+        ];
+
+        let channel_info = parse_ht_operation(&ht_op);
+
+        // parse_ht_operation requires len >= 3, returns 20MHz bandwidth
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz20);
+    }
+
+    // -------------------------------------------------------------------------
+    // VHT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_vht_operation_80mhz() {
+        let vht_op = vec![
+            1,    // 80MHz
+            42,   // Center freq segment 0
+            0,    // Center freq segment 1
+        ];
+
+        let channel_info = parse_vht_operation(&vht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz80);
+        assert_eq!(info.center_freq_0, Some(42));
+    }
+
+    #[test]
+    fn test_parse_vht_operation_160mhz() {
+        let vht_op = vec![
+            2,    // 160MHz
+            114,  // Center freq segment 0
+            0,
+        ];
+
+        let channel_info = parse_vht_operation(&vht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz160);
+    }
+
+    // -------------------------------------------------------------------------
+    // EHT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_eht_operation_320mhz() {
+        let eht_op = vec![
+            0x00,
+            0x10,  // Width bits for 320MHz (bits 2-4 = 4)
+            0x00,
+            0x00,
+        ];
+
+        let channel_info = parse_eht_operation(&eht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz320);
+    }
+
+    // -------------------------------------------------------------------------
+    // MCS Map Stream Counting Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_count_supported_streams_from_mcs_map() {
+        // MCS map with 2 streams supported
+        let mcs_map: u16 = 0x0000;  // All supported up to 2 streams
+        let count = count_supported_streams_from_mcs_map(mcs_map);
+        assert_eq!(count, 8);  // All 8 streams supported
+
+        // MCS map with only 1 stream
+        let mcs_map_1ss: u16 = 0xFFFC;  // Only stream 1 supported (bits 0-1 = 0, rest = 3)
+        let count_1ss = count_supported_streams_from_mcs_map(mcs_map_1ss);
+        assert_eq!(count_1ss, 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel Info Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_channel_info_with_secondary() {
+        let info = ChannelInfo {
+            primary: 6,
+            bandwidth: ChannelBandwidth::MHz40,
+            secondary: Some(10),
+            secondary_offset: Some(SecondaryChannelOffset::Above),
+            center_freq_0: None,
+            center_freq_1: None,
+            frequency: Some(2437),
+        };
+
+        assert_eq!(info.primary, 6);
+        assert_eq!(info.bandwidth.as_mhz(), 40);
+        assert_eq!(info.secondary, Some(10));
+    }
 }

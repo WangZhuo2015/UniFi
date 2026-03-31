@@ -25,6 +25,15 @@ impl Band {
         if ch > 14 { Band::Ghz5 } else { Band::Ghz2_4 }
     }
 
+    pub fn from_frequency(freq_mhz: u32) -> Self {
+        match freq_mhz {
+            2400..=2499 => Band::Ghz2_4,
+            5000..=5899 => Band::Ghz5,
+            5900..=7125 => Band::Ghz6,
+            _ => Band::Ghz2_4,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Band::Ghz2_4 => "2.4",
@@ -457,7 +466,7 @@ pub struct LocalAdapterCapabilities {
     pub max_supported_width: u16,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Network {
     pub ssid: Option<String>,
@@ -551,3 +560,394 @@ impl std::fmt::Display for ScanError {
 }
 
 impl std::error::Error for ScanError {}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // Band Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_band_from_channel() {
+        assert_eq!(Band::from_channel(1), Band::Ghz2_4);
+        assert_eq!(Band::from_channel(6), Band::Ghz2_4);
+        assert_eq!(Band::from_channel(11), Band::Ghz2_4);
+        assert_eq!(Band::from_channel(14), Band::Ghz2_4);
+        assert_eq!(Band::from_channel(36), Band::Ghz5);
+        assert_eq!(Band::from_channel(48), Band::Ghz5);
+        assert_eq!(Band::from_channel(149), Band::Ghz5);
+    }
+
+    #[test]
+    fn test_band_from_frequency() {
+        assert_eq!(Band::from_frequency(2412), Band::Ghz2_4);
+        assert_eq!(Band::from_frequency(2437), Band::Ghz2_4);
+        assert_eq!(Band::from_frequency(2484), Band::Ghz2_4);
+        assert_eq!(Band::from_frequency(5180), Band::Ghz5);
+        assert_eq!(Band::from_frequency(5240), Band::Ghz5);
+        assert_eq!(Band::from_frequency(5745), Band::Ghz5);
+        assert_eq!(Band::from_frequency(5955), Band::Ghz6);
+        assert_eq!(Band::from_frequency(6100), Band::Ghz6);
+    }
+
+    #[test]
+    fn test_band_display() {
+        assert_eq!(format!("{}", Band::Ghz2_4), "2.4");
+        assert_eq!(format!("{}", Band::Ghz5), "5");
+        assert_eq!(format!("{}", Band::Ghz6), "6");
+    }
+
+    // -------------------------------------------------------------------------
+    // RawBeacon Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_raw_beacon_bssid_string() {
+        let beacon = RawBeacon {
+            bssid: [0x80, 0x2D, 0x1A, 0x4B, 0x8C, 0x07],
+            ..Default::default()
+        };
+        assert_eq!(beacon.bssid_string(), "80:2D:1A:4B:8C:07");
+    }
+
+    #[test]
+    fn test_raw_beacon_ssid_string() {
+        let mut beacon = RawBeacon {
+            ssid: Some(b"MyNetwork".to_vec()),
+            ..Default::default()
+        };
+        assert_eq!(beacon.ssid_string(), Some("MyNetwork".to_string()));
+
+        beacon.ssid = Some(b"\xff\xfe".to_vec()); // Invalid UTF-8
+        assert_eq!(beacon.ssid_string(), None);
+
+        beacon.ssid = None;
+        assert_eq!(beacon.ssid_string(), None);
+    }
+
+    #[test]
+    fn test_raw_beacon_frequency() {
+        let mut beacon = RawBeacon {
+            channel: 6,
+            band: Band::Ghz2_4,
+            ..Default::default()
+        };
+        assert_eq!(beacon.frequency(), 2437);
+
+        beacon.channel = 48;
+        beacon.band = Band::Ghz5;
+        assert_eq!(beacon.frequency(), 5240);
+
+        beacon.channel = 1;
+        beacon.band = Band::Ghz6;
+        assert_eq!(beacon.frequency(), 5955);
+    }
+
+    #[test]
+    fn test_raw_beacon_snr() {
+        let beacon = RawBeacon {
+            signal_dbm: -50,
+            noise_dbm: -90,
+            ..Default::default()
+        };
+        assert_eq!(beacon.snr(), 40);
+
+        let beacon_noisy = RawBeacon {
+            signal_dbm: -30,
+            noise_dbm: -100,
+            ..Default::default()
+        };
+        assert_eq!(beacon_noisy.snr(), 70);
+
+        // Signal worse than noise should still return 0
+        let beacon_bad = RawBeacon {
+            signal_dbm: -100,
+            noise_dbm: -50,
+            ..Default::default()
+        };
+        assert_eq!(beacon_bad.snr(), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // ChannelBandwidth Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_channel_bandwidth_as_mhz() {
+        assert_eq!(ChannelBandwidth::MHz20.as_mhz(), 20);
+        assert_eq!(ChannelBandwidth::MHz40.as_mhz(), 40);
+        assert_eq!(ChannelBandwidth::MHz80.as_mhz(), 80);
+        assert_eq!(ChannelBandwidth::MHz160.as_mhz(), 160);
+        assert_eq!(ChannelBandwidth::MHz80Plus80.as_mhz(), 160);
+        assert_eq!(ChannelBandwidth::MHz320.as_mhz(), 320);
+    }
+
+    #[test]
+    fn test_channel_bandwidth_default() {
+        assert_eq!(ChannelBandwidth::default(), ChannelBandwidth::MHz20);
+    }
+
+    // -------------------------------------------------------------------------
+    // SecurityDetails Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_security_details_default() {
+        let details = SecurityDetails::default();
+        assert_eq!(details.security_type, "open");
+        assert_eq!(details.auth_method, "open");
+        assert_eq!(details.cipher, "none");
+        assert!(!details.is_enterprise);
+        assert!(!details.pmf_required);
+        assert!(!details.pmf_capable);
+        assert!(!details.sae);
+        assert!(!details.owe);
+    }
+
+    // -------------------------------------------------------------------------
+    // PerformanceFeatures Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_performance_features_default() {
+        let features = PerformanceFeatures::default();
+        assert!(!features.su_mimo);
+        assert!(!features.mu_mimo);
+        assert!(!features.ul_mu_mimo);
+        assert!(!features.ofdma);
+        assert_eq!(features.spatial_streams, 0);
+        assert_eq!(features.max_supported_width, 0);
+        assert_eq!(features.max_qam, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // ChannelInfo Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_channel_info_default() {
+        let info = ChannelInfo::default();
+        assert_eq!(info.primary, 0);
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz20);
+        assert!(info.secondary.is_none());
+        assert!(info.center_freq_0.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // OfdmaInfo Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ofdma_info() {
+        let info = OfdmaInfo {
+            dl_ofdma: true,
+            ul_ofdma: true,
+            ru_sizes: vec![RuSize::R26, RuSize::R52, RuSize::R106],
+        };
+        assert!(info.dl_ofdma);
+        assert!(info.ul_ofdma);
+        assert_eq!(info.ru_sizes.len(), 3);
+    }
+
+    // -------------------------------------------------------------------------
+    // TwtInfo Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_twt_info() {
+        let info = TwtInfo {
+            broadcast_twt: true,
+            individual_twt: true,
+            twt_requester: true,
+            twt_responder: false,
+        };
+        assert!(info.broadcast_twt);
+        assert!(info.individual_twt);
+        assert!(info.twt_requester);
+        assert!(!info.twt_responder);
+    }
+
+    // -------------------------------------------------------------------------
+    // McsInfo Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_mcs_info() {
+        let info = McsInfo {
+            max_mcs: Some(11),
+            current_mcs: Some(9),
+            max_modulation: Some(Modulation::QAM1024),
+        };
+        assert_eq!(info.max_mcs, Some(11));
+        assert_eq!(info.max_modulation, Some(Modulation::QAM1024));
+    }
+
+    // -------------------------------------------------------------------------
+    // Modulation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_modulation_order() {
+        // Test that modulation types are defined in order
+        let modulations = [
+            Modulation::BPSK,
+            Modulation::QPSK,
+            Modulation::QAM16,
+            Modulation::QAM64,
+            Modulation::QAM256,
+            Modulation::QAM1024,
+            Modulation::QAM4096,
+        ];
+
+        // Verify they exist and are distinct
+        for (i, m) in modulations.iter().enumerate() {
+            for (j, n) in modulations.iter().enumerate() {
+                if i == j {
+                    assert_eq!(*m, *n);
+                } else {
+                    assert_ne!(*m, *n);
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ScanError Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_scan_error_display() {
+        assert_eq!(
+            format!("{}", ScanError::CommandFailed("test error".into())),
+            "Command failed: test error"
+        );
+        assert_eq!(
+            format!("{}", ScanError::ParseError("bad data".into())),
+            "Parse error: bad data"
+        );
+        assert_eq!(
+            format!("{}", ScanError::PermissionDenied),
+            "Permission denied (try with sudo/admin)"
+        );
+        assert_eq!(
+            format!("{}", ScanError::NotSupported),
+            "Not supported on this platform"
+        );
+        assert_eq!(
+            format!("{}", ScanError::NoInterface),
+            "No WiFi interface found"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Network Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_network_default() {
+        let network = Network::default();
+        assert!(network.ssid.is_none());
+        assert!(network.bssid.is_empty());
+        assert_eq!(network.signal, 0);
+        assert!(network.standards.is_empty());
+        assert!(!network.connected);
+    }
+
+    // -------------------------------------------------------------------------
+    // BssLoad Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_bss_load() {
+        let load = BssLoad {
+            channel_utilization: 50,
+            station_count: 10,
+            available_capacity: 100,
+        };
+        assert_eq!(load.channel_utilization, 50);
+        assert_eq!(load.station_count, 10);
+        assert_eq!(load.available_capacity, 100);
+    }
+
+    // -------------------------------------------------------------------------
+    // LinkRates Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_link_rates() {
+        let rates = LinkRates {
+            rx_rate_mbps: Some(866.7),
+            tx_rate_mbps: Some(433.3),
+        };
+        assert_eq!(rates.rx_rate_mbps, Some(866.7));
+        assert_eq!(rates.tx_rate_mbps, Some(433.3));
+    }
+
+    // -------------------------------------------------------------------------
+    // LocalAdapterCapabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_local_adapter_capabilities() {
+        let caps = LocalAdapterCapabilities {
+            driver_name: "Intel AX200".to_string(),
+            supported_standards: vec!["n".to_string(), "ac".to_string(), "ax".to_string()],
+            tx_spatial_streams: 2,
+            rx_spatial_streams: 2,
+            max_supported_width: 160,
+        };
+        assert_eq!(caps.driver_name, "Intel AX200");
+        assert_eq!(caps.supported_standards.len(), 3);
+        assert_eq!(caps.tx_spatial_streams, 2);
+        assert_eq!(caps.max_supported_width, 160);
+    }
+
+    // -------------------------------------------------------------------------
+    // Serialization Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_band_serialization() {
+        let band = Band::Ghz2_4;
+        let json = serde_json::to_string(&band).unwrap();
+        assert_eq!(json, "\"2.4\"");
+
+        let band5 = Band::Ghz5;
+        let json = serde_json::to_string(&band5).unwrap();
+        assert_eq!(json, "\"5\"");
+    }
+
+    #[test]
+    fn test_channel_bandwidth_serialization() {
+        let bw = ChannelBandwidth::MHz80;
+        let json = serde_json::to_string(&bw).unwrap();
+        assert_eq!(json, "\"mhz80\"");
+
+        let bw320 = ChannelBandwidth::MHz320;
+        let json = serde_json::to_string(&bw320).unwrap();
+        assert_eq!(json, "\"mhz320\"");
+    }
+
+    #[test]
+    fn test_network_serialization() {
+        let network = Network {
+            ssid: Some("TestNetwork".to_string()),
+            bssid: "AA:BB:CC:DD:EE:FF".to_string(),
+            signal: -50,
+            channel: 6,
+            band: "2.4".to_string(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&network).unwrap();
+        assert!(json.contains("TestNetwork"));
+        assert!(json.contains("AA:BB:CC:DD:EE:FF"));
+        assert!(json.contains("-50"));
+    }
+}
