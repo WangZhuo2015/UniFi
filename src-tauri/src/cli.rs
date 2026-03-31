@@ -274,11 +274,21 @@ fn cmd_info(bssid: &str, scanner_name: &str) {
                 println!("Local Adapter:   {}", local_adapter.driver_name);
             }
             println!();
-            println!("=== Features ===");
-            println!("MU-MIMO:      {}", net.features.mu_mimo);
-            println!("OFDMA:        {}", net.features.ofdma);
-            println!("MLO:          {}", net.features.mlo);
+            println!("=== MIMO & Beamforming ===");
+            println!("Spatial Streams: {}", net.features.spatial_streams);
+            println!("SU-MIMO:       {}", if net.features.su_mimo { "✓" } else { "✗" });
+            println!("MU-MIMO (DL):  {}", if net.features.mu_mimo { "✓" } else { "✗" });
+            println!("MU-MIMO (UL):  {}", if net.features.ul_mu_mimo { "✓" } else { "✗" });
+            println!("SU Beamformer: {}", if net.features.su_beamformer { "✓" } else { "✗" });
+            println!("SU Beamformee: {}", if net.features.su_beamformee { "✓" } else { "✗" });
+            println!("MU Beamformer: {}", if net.features.mu_beamformer { "✓" } else { "✗" });
+            println!();
+            println!("=== Other Features ===");
+            println!("OFDMA:        {}", if net.features.ofdma { "✓" } else { "✗" });
+            println!("MLO:          {}", if net.features.mlo { "✓" } else { "✗" });
             println!("Max QAM:      {}", net.features.max_qam);
+            println!("BSS Coloring: {}", if net.features.bss_coloring { "✓" } else { "✗" });
+            println!("Guard Interval: {} ns", net.features.guard_interval);
             println!();
             println!("=== Security ===");
             println!("Type:         {}", net.security);

@@ -155,14 +155,23 @@ pub struct ProtocolExtensions {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PerformanceFeatures {
-    pub mu_mimo: bool,
+    // MIMO capabilities
+    pub su_mimo: bool,           // Single-User MIMO (basic MIMO)
+    pub mu_mimo: bool,           // Multi-User MIMO (DL for WiFi 5, DL+UL for WiFi 6+)
+    pub ul_mu_mimo: bool,        // Uplink MU-MIMO (WiFi 6+ only)
+
+    // Beamforming capabilities
+    pub su_beamformer: bool,     // Can act as SU beamformer
+    pub su_beamformee: bool,     // Can act as SU beamformee
+    pub mu_beamformer: bool,     // Can act as MU beamformer (DL MU-MIMO)
+
+    // Other features
     pub ofdma: bool,
     pub bss_coloring: bool,
     pub twt: bool,
     pub spatial_streams: u8,
     pub max_supported_width: u16,
     pub max_data_rate: u32,
-    pub tx_beamforming: bool,
     pub ampdu_length: u8,
     pub mlo: bool,
     pub max_qam: u16,

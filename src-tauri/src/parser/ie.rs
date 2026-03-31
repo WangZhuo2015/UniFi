@@ -267,8 +267,14 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
         }
     }
 
-    // TX beamforming
-    features.tx_beamforming = (caps & 0x1000) != 0;
+    // WiFi 4 (HT) supports SU-MIMO by default when spatial_streams > 1
+    features.su_mimo = features.spatial_streams > 1;
+
+    // TX beamforming capabilities (HT)
+    // Bit 11: Receive STBC
+    // Bit 12: Transmit STBC
+    // Note: HT uses different beamforming mechanism than VHT/HE
+    features.su_beamformer = (caps & 0x1000) != 0;  // Transmit STBC can indicate beamforming capability
 
     // Guard Interval: bit 6 = Short GI for 20MHz, bit 7 = Short GI for 40MHz
     // Short GI = 400ns, Long GI = 800ns
@@ -296,8 +302,21 @@ fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     let supports_160 = (caps & (1 << 2)) != 0 || (caps & (1 << 3)) != 0;
     update_max_supported_width(features, if supports_160 { 160 } else { 80 });
 
-    // MU-MIMO
-    features.mu_mimo = (caps & 0x1000) != 0;
+    // WiFi 5 (VHT) supports SU-MIMO by default when spatial_streams > 1
+    features.su_mimo = features.spatial_streams > 1;
+
+    // MU-MIMO (WiFi 5 only supports DL MU-MIMO)
+    // Bit 12: MU Beamformer capable
+    features.mu_mimo = (caps & (1 << 19)) != 0;
+    features.ul_mu_mimo = false;  // WiFi 5 doesn't support UL MU-MIMO
+
+    // Beamforming capabilities (VHT)
+    // Bit 19: SU Beamformer
+    // Bit 20: SU Beamformee
+    // Bit 21: MU Beamformer
+    features.su_beamformer = (caps & (1 << 19)) != 0;
+    features.su_beamformee = (caps & (1 << 20)) != 0;
+    features.mu_beamformer = (caps & (1 << 21)) != 0;
 
     // Max MPDU length indicates 256-QAM support
     features.max_qam = 256;
@@ -313,6 +332,7 @@ fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
         let nss = count_supported_streams_from_mcs_map(rx_mcs);
         if nss > 0 {
             features.spatial_streams = nss;
+            features.su_mimo = nss > 1;
         }
     }
 }
@@ -325,14 +345,30 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
     let mut max_width = 80;
 
-    // OFDMA
+    // OFDMA - WiFi 6 supports both DL and UL OFDMA
     features.ofdma = true;
     features.bss_coloring = true;
     features.max_qam = 1024;
 
+    // WiFi 6 supports SU-MIMO by default when spatial_streams > 1
+    features.su_mimo = features.spatial_streams > 1;
+
+    // WiFi 6 supports both DL and UL MU-MIMO
+    features.mu_mimo = true;
+
     // HE supports multiple guard intervals: 0.8, 1.6, 3.2 us
     // Default to 800ns, but HE typically supports all
     features.guard_interval = 800;
+
+    // Beamforming capabilities (HE)
+    // From HE PHY Capabilities Info field 3 (byte 10)
+    if data.len() >= 11 {
+        let phy3 = data[10];
+        features.su_beamformer = (phy3 & 0x80) != 0;
+        features.su_beamformee = (phy3 & 0x01) != 0;
+        features.mu_beamformer = (phy3 & 0x02) != 0;
+        features.ul_mu_mimo = (phy3 & 0x20) != 0;  // Full-bandwidth UL MU-MIMO
+    }
 
     // 160MHz support
     if (phy_cap & 0x08) != 0 {
@@ -348,6 +384,7 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
         let nss = count_supported_streams_from_mcs_map(rx_mcs);
         if nss > 0 {
             features.spatial_streams = nss;
+            features.su_mimo = nss > 1;
         }
     }
 
@@ -360,14 +397,24 @@ fn parse_eht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 9 {
         return;
     }
-    
+
     let phy_cap = u32::from_le_bytes([data[5], data[6], data[7], data[8]]);
-    
+
+    // WiFi 7 supports all advanced features
     features.ofdma = true;
     features.bss_coloring = true;
+    features.su_mimo = features.spatial_streams > 1;
     features.mu_mimo = true;
+    features.ul_mu_mimo = true;
     features.max_qam = 4096;
-    
+
+    // WiFi 7 beamforming - inherits from HE and adds more
+    // EHT capabilities build upon HE, so we preserve HE beamforming settings
+    // but ensure MU capabilities are enabled
+    features.su_beamformer = true;  // WiFi 7 APs typically support this
+    features.su_beamformee = true;
+    features.mu_beamformer = true;
+
     let max_width = match phy_cap & 0x03 {
         0x03 => 320,
         0x02 => 160,
@@ -375,12 +422,12 @@ fn parse_eht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
         _ => 40,
     };
     update_max_supported_width(features, max_width);
-    
+
     // 4096-QAM support
     if (phy_cap & 0x000F0000) != 0 {
         features.max_qam = 4096;
     }
-    
+
     if features.spatial_streams == 0 {
         features.spatial_streams = 2;
     }
