@@ -23,6 +23,22 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
     let channel_width = ie::detect_channel_width(&raw.ie_data, raw.channel, raw.band);
     let wifi_generation = detect_wifi_generation(&standards);
     features.max_supported_width = normalize_width_for_band(features.max_supported_width, raw.band);
+
+    // Populate primary channel in channel_info from raw data
+    if let Some(ref mut ch_info) = features.channel_info {
+        ch_info.primary = raw.channel;
+        ch_info.frequency = Some(raw.frequency());
+    }
+
+    // For WiFi 7 (EHT), also populate OFDMA info
+    if standards.contains(&"be".to_string()) && features.ofdma_info.is_none() {
+        features.ofdma_info = Some(OfdmaInfo {
+            dl_ofdma: true,
+            ul_ofdma: true,
+            ru_sizes: vec![RuSize::R26, RuSize::R52, RuSize::R106, RuSize::R242, RuSize::R484, RuSize::R996, RuSize::R996x2],
+        });
+    }
+
     let min_data_rate = calculate_min_rate(&standards, channel_width, &supported_rates);
     let max_data_rate = calculate_max_rate(&standards, channel_width, &features, &supported_rates);
     let ap_peak_data_rate = calculate_max_rate(

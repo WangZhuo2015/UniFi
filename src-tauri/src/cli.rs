@@ -282,11 +282,82 @@ fn cmd_info(bssid: &str, scanner_name: &str) {
             println!("SU Beamformer: {}", if net.features.su_beamformer { "✓" } else { "✗" });
             println!("SU Beamformee: {}", if net.features.su_beamformee { "✓" } else { "✗" });
             println!("MU Beamformer: {}", if net.features.mu_beamformer { "✓" } else { "✗" });
+            // Detailed spatial stream info
+            if let Some(ss_info) = &net.features.spatial_stream_info {
+                if let Some(tx) = ss_info.tx_streams {
+                    println!("TX Streams:   {}", tx);
+                }
+                if let Some(rx) = ss_info.rx_streams {
+                    println!("RX Streams:   {}", rx);
+                }
+            }
             println!();
-            println!("=== Other Features ===");
+            println!("=== Channel Details ===");
+            if let Some(ch_info) = &net.features.channel_info {
+                println!("Primary:      CH {}", ch_info.primary);
+                println!("Bandwidth:    {} MHz", ch_info.bandwidth.as_mhz());
+                if let Some(sec) = ch_info.secondary {
+                    println!("Secondary:    CH {}", sec);
+                }
+                if let Some(offset) = &ch_info.secondary_offset {
+                    println!("Sec Offset:   {:?}", offset);
+                }
+                if let Some(cf0) = ch_info.center_freq_0 {
+                    println!("Center Freq 0: {} MHz", cf0 * 5 + 5000);
+                }
+                if let Some(cf1) = ch_info.center_freq_1 {
+                    println!("Center Freq 1: {} MHz", cf1 * 5 + 5000);
+                }
+            } else {
+                println!("Bandwidth:    {} MHz", net.channel_width);
+            }
+            println!();
+            println!("=== OFDMA & TWT ===");
             println!("OFDMA:        {}", if net.features.ofdma { "✓" } else { "✗" });
+            if let Some(ofdma) = &net.features.ofdma_info {
+                println!("DL OFDMA:     {}", if ofdma.dl_ofdma { "✓" } else { "✗" });
+                println!("UL OFDMA:     {}", if ofdma.ul_ofdma { "✓" } else { "✗" });
+                if !ofdma.ru_sizes.is_empty() {
+                    let ru_names: Vec<String> = ofdma.ru_sizes.iter().map(|ru| match ru {
+                        RuSize::R26 => "26",
+                        RuSize::R52 => "52",
+                        RuSize::R106 => "106",
+                        RuSize::R242 => "242",
+                        RuSize::R484 => "484",
+                        RuSize::R996 => "996",
+                        RuSize::R996x2 => "996x2",
+                    }).map(|s| format!("{}-tone", s)).collect();
+                    println!("RU Sizes:     {}", ru_names.join(", "));
+                }
+            }
+            if let Some(twt) = &net.features.twt_info {
+                println!("TWT:          ✓");
+                println!("Broadcast TWT: {}", if twt.broadcast_twt { "✓" } else { "✗" });
+                println!("Individual TWT: {}", if twt.individual_twt { "✓" } else { "✗" });
+                println!("TWT Requester: {}", if twt.twt_requester { "✓" } else { "✗" });
+                println!("TWT Responder: {}", if twt.twt_responder { "✓" } else { "✗" });
+            }
+            println!();
+            println!("=== WiFi 7 Features ===");
             println!("MLO:          {}", if net.features.mlo { "✓" } else { "✗" });
+            if let Some(w7) = &net.features.wifi7_features {
+                if let Some(mlo) = &w7.mlo {
+                    println!("MLO Links:    {}", mlo.num_links);
+                }
+                println!("Punctured Preamble: {}", if w7.punctured_preamble { "✓" } else { "✗" });
+                println!("Multi-RU:     {}", if w7.multi_ru { "✓" } else { "✗" });
+            }
+            println!();
+            println!("=== MCS & Modulation ===");
             println!("Max QAM:      {}", net.features.max_qam);
+            if let Some(mcs) = &net.features.mcs_info {
+                if let Some(max_mcs) = mcs.max_mcs {
+                    println!("Max MCS:      {}", max_mcs);
+                }
+                if let Some(modulation) = &mcs.max_modulation {
+                    println!("Modulation:   {:?}", modulation);
+                }
+            }
             println!("BSS Coloring: {}", if net.features.bss_coloring { "✓" } else { "✗" });
             println!("Guard Interval: {} ns", net.features.guard_interval);
             println!();
@@ -294,12 +365,30 @@ fn cmd_info(bssid: &str, scanner_name: &str) {
             println!("Type:         {}", net.security);
             println!("Auth Method:  {}", net.security_details.auth_method);
             println!("Cipher:       {}", net.security_details.cipher);
+            if let Some(group) = &net.security_details.group_cipher {
+                println!("Group Cipher: {}", group);
+            }
+            if !net.security_details.pairwise_ciphers.is_empty() {
+                println!("Pairwise:     {}", net.security_details.pairwise_ciphers.join(", "));
+            }
+            println!("SAE (WPA3):   {}", if net.security_details.sae { "✓" } else { "✗" });
+            println!("OWE:          {}", if net.security_details.owe { "✓" } else { "✗" });
+            println!("PMF Capable:  {}", if net.security_details.pmf_capable { "✓" } else { "✗" });
+            println!("PMF Required: {}", if net.security_details.pmf_required { "✓" } else { "✗" });
+            println!("WPA3 Transition: {}", if net.security_details.is_wpa3_transition { "✓" } else { "✗" });
             println!();
-            println!("=== Protocols ===");
-            println!("802.11k (RRM): {}", net.protocols.rrm);
-            println!("802.11r (FT):  {}", net.protocols.ft);
-            println!("802.11v (BSS): {}", net.protocols.bss_transition);
-            println!("802.11w (PMF): {}", net.protocols.pmf);
+            println!("=== Roaming Protocols ===");
+            println!("802.11k (RRM): {}", if net.protocols.rrm { "✓" } else { "✗" });
+            println!("  Neighbor Report: {}", if net.protocols.neighbor_report { "✓" } else { "✗" });
+            println!("  Beacon Report:   {}", if net.protocols.beacon_report { "✓" } else { "✗" });
+            println!("802.11r (FT):  {}", if net.protocols.ft { "✓" } else { "✗" });
+            println!("  FT over DS:      {}", if net.protocols.ft_over_ds { "✓" } else { "✗" });
+            println!("  FT Resource Req: {}", if net.protocols.ft_resource_request { "✓" } else { "✗" });
+            println!("802.11v (BSS): {}", if net.protocols.bss_transition { "✓" } else { "✗" });
+            println!("  WNM Sleep:       {}", if net.protocols.wnm_sleep { "✓" } else { "✗" });
+            println!("802.11w (PMF): {}", if net.protocols.pmf { "✓" } else { "✗" });
+            println!("WMM:           {}", if net.protocols.wmm { "✓" } else { "✗" });
+            println!("  U-APSD:          {}", if net.protocols.wmm_uapsd { "✓" } else { "✗" });
 
             if !b.ie_data.is_empty() {
                 println!();
