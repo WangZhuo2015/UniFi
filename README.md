@@ -72,22 +72,28 @@ pnpm tauri build
 ```bash
 # Build CLI
 cd src-tauri
-cargo build --features cli --release
+cargo build --release
 
-# Usage
-./target/release/unifi-cli scan
-./target/release/unifi-cli current
-./target/release/unifi-cli info AA:BB:CC:DD:EE:FF
+# Basic commands
+./target/release/unifi scan                    # Scan networks
+./target/release/unifi scan --format json      # JSON output
+./target/release/unifi current                 # Current connection
+./target/release/unifi info AA:BB:CC:DD:EE:FF  # Network details
+./target/release/unifi scanners --verbose      # List available scanners
 ```
+
+See [CLI Usage Guide](./docs/CLI_USAGE.md) for complete documentation.
 
 ## Platform Support
 
-| Platform | Scanner | Status | Privilege Required |
-|----------|---------|--------|-------------------|
-| macOS | airport CLI | ✅ Supported | None |
-| macOS | libpcap | 🔲 Planned | root |
-| Windows | WlanApi | ✅ Supported | None |
-| Linux | nl80211 (iw) | ✅ Supported | root |
+| Platform | Scanner | IE Data | WiFi 6/7 | Privilege Required |
+|----------|---------|---------|----------|-------------------|
+| macOS | airport | ✓ Full | ✓ | None |
+| macOS | corewlan | ✗ None | ✗ | None |
+| macOS | libpcap | ✓ Full | ✓ | root |
+| Windows | WlanAPI | Partial | Partial | None |
+| Linux | nl80211 | ✓ Full | ✓ | None |
+| Linux | libpcap | ✓ Full | ✓ | root |
 
 ## Tech Stack
 

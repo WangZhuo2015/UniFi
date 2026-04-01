@@ -14,22 +14,36 @@ pub use ie::parse_all_ies;
 pub fn parse_beacon(raw: &RawBeacon) -> Network {
     let bssid = raw.bssid_string();
 
-    // Parse IE data
-    let (standards, mut features, protocols, security, security_details, bss_load, country_code, wps, supported_rates) =
-        ie::parse_capabilities(&raw.ie_data);
-    let standards = normalize_standards_for_band(standards, raw.band);
-
-    // Detect channel width from IE
-    let channel_width = ie::detect_channel_width(&raw.ie_data, raw.channel, raw.band);
+    // Parse IE data - single pass, structured result
+    let parsed = ie::parse_capabilities(&raw.ie_data);
+    let standards = normalize_standards_for_band(parsed.standards, raw.band);
+    let mut features = parsed.features;
+    let channel_width = parsed.channel_width;
     let wifi_generation = detect_wifi_generation(&standards);
     features.max_supported_width = normalize_width_for_band(features.max_supported_width, raw.band);
-    let min_data_rate = calculate_min_rate(&standards, channel_width, &supported_rates);
-    let max_data_rate = calculate_max_rate(&standards, channel_width, &features, &supported_rates);
+
+    // Populate primary channel in channel_info from raw data
+    if let Some(ref mut ch_info) = features.channel_info {
+        ch_info.primary = raw.channel;
+        ch_info.frequency = Some(raw.frequency());
+    }
+
+    // For WiFi 7 (EHT), also populate OFDMA info
+    if standards.contains(&"be".to_string()) && features.ofdma_info.is_none() {
+        features.ofdma_info = Some(OfdmaInfo {
+            dl_ofdma: true,
+            ul_ofdma: true,
+            ru_sizes: vec![RuSize::R26, RuSize::R52, RuSize::R106, RuSize::R242, RuSize::R484, RuSize::R996, RuSize::R996x2],
+        });
+    }
+
+    let min_data_rate = calculate_min_rate(&standards, channel_width, &parsed.supported_rates);
+    let max_data_rate = calculate_max_rate(&standards, channel_width, &features, &parsed.supported_rates);
     let ap_peak_data_rate = calculate_max_rate(
         &standards,
         normalize_width_for_band(features.max_supported_width.max(channel_width), raw.band),
         &features,
-        &supported_rates,
+        &parsed.supported_rates,
     );
     let client_spatial_streams = raw.local_adapter.as_ref().map(|adapter| {
         adapter
@@ -41,10 +55,11 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
     let client_peak_data_rate = raw
         .local_adapter
         .as_ref()
-        .and_then(|adapter| calculate_client_peak_data_rate(&standards, channel_width, &features, adapter, &supported_rates, raw.band));
+        .and_then(|adapter| calculate_client_peak_data_rate(&standards, channel_width, &features, adapter, &parsed.supported_rates, raw.band));
     features.max_data_rate = max_data_rate.round() as u32;
 
-    let ssid = raw.ssid_string();
+    // Get SSID from raw beacon or parse from IE data
+    let ssid = raw.ssid_string().or_else(|| parse_ssid_from_ie(&raw.ie_data));
     let mut vendor = lookup_vendor(&bssid);
     if vendor == "Unknown" || vendor == "Locally Administered" {
         if let Some(ie_vendor) = lookup_vendor_from_ie(&raw.ie_data) {
@@ -73,16 +88,16 @@ pub fn parse_beacon(raw: &RawBeacon) -> Network {
         min_data_rate,
         max_data_rate,
         ap_peak_data_rate,
-        security,
-        security_details,
-        protocols,
-        bss_load,
+        security: parsed.security,
+        security_details: parsed.security_details,
+        protocols: parsed.protocols,
+        bss_load: parsed.bss_load,
         is_hidden,
         network_group_id: None,
         vendor,
-        country_code,
-        supported_rates,
-        wps_enabled: wps,
+        country_code: parsed.country_code,
+        supported_rates: parsed.supported_rates,
+        wps_enabled: parsed.wps,
         ap_mode: 0,
         capabilities: 0,
         beacon_interval: raw.beacon_interval,
@@ -263,4 +278,25 @@ fn ofdm_rate_mbps(channel_width: u16, mcs: usize, streams: u32) -> f32 {
 
 fn round_rate(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
+}
+
+/// Parse SSID from IE data (IE ID 0)
+fn parse_ssid_from_ie(ie_data: &[u8]) -> Option<String> {
+    let mut pos = 0;
+    while pos + 1 < ie_data.len() {
+        let id = ie_data[pos];
+        let len = ie_data[pos + 1] as usize;
+
+        if pos + 2 + len > ie_data.len() {
+            break;
+        }
+
+        if id == 0 && len > 0 {
+            let ssid_bytes = &ie_data[pos + 2..pos + 2 + len];
+            return String::from_utf8(ssid_bytes.to_vec()).ok();
+        }
+
+        pos += 2 + len;
+    }
+    None
 }

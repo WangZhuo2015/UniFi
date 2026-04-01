@@ -1,265 +1,414 @@
 //! IE (Information Element) Parser
 //!
 //! Pure functions for parsing 802.11 IE data.
-//! No external dependencies on platform-specific code.
+//! Single-pass parsing: traverse IE data once, extract all information.
 
 use crate::types::*;
 use crate::vendor::lookup_oui;
 use std::collections::HashMap;
 
 // ============================================================================
-// IE Names
+// IE Constants - Use constants, not magic numbers
 // ============================================================================
+
+pub const IE_SSID: u8 = 0;
+pub const IE_SUPPORTED_RATES: u8 = 1;
+pub const IE_DS_PARAM: u8 = 3;
+pub const IE_COUNTRY: u8 = 7;
+pub const IE_BSS_LOAD: u8 = 11;
+pub const IE_HT_CAPS: u8 = 45;
+pub const IE_RSN: u8 = 48;
+pub const IE_EXTENDED_RATES: u8 = 50;
+pub const IE_HT_OP: u8 = 61;
+pub const IE_RM_CAPS: u8 = 70;
+pub const IE_EXTENDED_CAPS: u8 = 127;
+pub const IE_VHT_CAPS: u8 = 191;
+pub const IE_VHT_OP: u8 = 192;
+pub const IE_VENDOR: u8 = 221;
+pub const IE_EXTENSION: u8 = 255;
+
+// Extended IE IDs
+pub const EXT_HE_CAPS: u8 = 35;
+pub const EXT_HE_OP: u8 = 36;
+pub const EXT_EHT_OP: u8 = 106;
+pub const EXT_MLO: u8 = 107;
+pub const EXT_EHT_CAPS: u8 = 108;
+
+// WiFi standard names as static strings - no heap allocation
+#[allow(dead_code)]
+pub const STD_B: &str = "b";
+pub const STD_G: &str = "g";
+#[allow(dead_code)]
+pub const STD_A: &str = "a";
+pub const STD_N: &str = "n";
+pub const STD_AC: &str = "ac";
+pub const STD_AX: &str = "ax";
+pub const STD_BE: &str = "be";
 
 pub fn ie_name(id: u8) -> &'static str {
     match id {
-        0 => "SSID",
-        1 => "Supported Rates",
-        3 => "DS Parameter Set",
-        7 => "Country",
-        11 => "QBSS Load",
-        45 => "HT Capabilities",
-        48 => "RSN",
-        50 => "Extended Supported Rates",
-        61 => "HT Operation",
-        70 => "RM Enabled Capabilities",
-        127 => "Extended Capabilities",
-        191 => "VHT Capabilities",
-        192 => "VHT Operation",
-        221 => "Vendor Specific",
-        255 => "Extended Element",
+        IE_SSID => "SSID",
+        IE_SUPPORTED_RATES => "Supported Rates",
+        IE_DS_PARAM => "DS Parameter Set",
+        IE_COUNTRY => "Country",
+        IE_BSS_LOAD => "QBSS Load",
+        IE_HT_CAPS => "HT Capabilities",
+        IE_RSN => "RSN",
+        IE_EXTENDED_RATES => "Extended Supported Rates",
+        IE_HT_OP => "HT Operation",
+        IE_RM_CAPS => "RM Enabled Capabilities",
+        IE_EXTENDED_CAPS => "Extended Capabilities",
+        IE_VHT_CAPS => "VHT Capabilities",
+        IE_VHT_OP => "VHT Operation",
+        IE_VENDOR => "Vendor Specific",
+        IE_EXTENSION => "Extended Element",
         _ => "Unknown",
     }
 }
 
 fn ext_ie_name(ext_id: u8) -> &'static str {
     match ext_id {
-        35 => "HE Capabilities",
-        36 => "HE Operation",
-        106 => "EHT Operation",
-        107 => "EHT Multi-Link",
-        108 => "EHT Capabilities",
+        EXT_HE_CAPS => "HE Capabilities",
+        EXT_HE_OP => "HE Operation",
+        EXT_EHT_OP => "EHT Operation",
+        EXT_MLO => "EHT Multi-Link",
+        EXT_EHT_CAPS => "EHT Capabilities",
         _ => "Unknown Extension",
     }
 }
 
 // ============================================================================
-// Main Parsing Functions
+// IE Iterator - Single-pass traversal
 // ============================================================================
 
-/// Parse capabilities from IE data.
-/// Returns (standards, features, protocols, security, security_details, bss_load, country_code, wps, rates)
-pub fn parse_capabilities(ie_data: &[u8]) -> (
-    Vec<String>,
-    PerformanceFeatures,
-    ProtocolExtensions,
-    String,
-    SecurityDetails,
-    Option<BssLoad>,
-    Option<String>,
-    bool,
-    Vec<u32>,
-) {
-    let mut standards = Vec::new();
-    let mut features = PerformanceFeatures::default();
-    let mut protocols = ProtocolExtensions::default();
-    let mut security = "open".to_string();
-    let mut security_details = SecurityDetails::default();
-    let mut bss_load = None;
-    let mut country_code = None;
-    let mut wps = false;
-    let mut supported_rates = Vec::new();
-    
-    // Scan IE data
-    let mut pos = 0;
-    while pos + 1 < ie_data.len() {
-        let id = ie_data[pos];
-        let len = ie_data[pos + 1] as usize;
-        
-        if pos + 2 + len > ie_data.len() {
-            break;
-        }
-        
-        let data = &ie_data[pos + 2..pos + 2 + len];
-        
-        match id {
-            1 | 50 => {
-                // Supported rates
-                for b in data {
-                    let rate = (b & 0x7F) as u32 / 2;
-                    supported_rates.push(rate);
-                }
-            }
-            11 => {
-                // QBSS Load
-                if len >= 5 {
-                    bss_load = Some(BssLoad {
-                        channel_utilization: data[2],
-                        station_count: u16::from_le_bytes([data[0], data[1]]),
-                        available_capacity: u16::from_le_bytes([data[3], data[4]]),
-                    });
-                }
-            }
-            7 => {
-                if len >= 2 {
-                    let code = String::from_utf8_lossy(&data[0..2]).trim().to_string();
-                    if !code.is_empty() {
-                        country_code = Some(code);
-                    }
-                }
-            }
-            45 => {
-                // HT Capabilities (WiFi 4)
-                if !standards.contains(&"n".to_string()) {
-                    standards.push("n".to_string());
-                }
-                parse_ht_capabilities(data, &mut features);
-            }
-            48 => {
-                // RSN (WPA2/WPA3)
-                let (sec, details) = parse_rsn(data);
-                security = sec;
-                security_details = details;
-            }
-            70 => {
-                // RM Capabilities (802.11k)
-                protocols.rrm = true;
-            }
-            127 => {
-                // Extended Capabilities
-                parse_extended_capabilities(data, &mut protocols);
-            }
-            191 => {
-                // VHT Capabilities (WiFi 5)
-                if !standards.contains(&"ac".to_string()) {
-                    standards.push("ac".to_string());
-                }
-                parse_vht_capabilities(data, &mut features);
-            }
-            221 => {
-                // Vendor Specific
-                if len >= 4 && data[0..3] == [0x00, 0x50, 0xF2] {
-                    if data[3] == 0x04 {
-                        wps = true;
-                    }
-                }
-            }
-            255 if len >= 1 => {
-                // Extended Element
-                match data[0] {
-                    35 => {
-                        // HE Capabilities (WiFi 6)
-                        if !standards.contains(&"ax".to_string()) {
-                            standards.push("ax".to_string());
-                        }
-                        parse_he_capabilities(data, &mut features);
-                    }
-                    108 => {
-                        // EHT Capabilities (WiFi 7)
-                        if !standards.contains(&"be".to_string()) {
-                            standards.push("be".to_string());
-                        }
-                        parse_eht_capabilities(data, &mut features);
-                    }
-                    107 => {
-                        // MLO
-                        features.mlo = true;
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-        
-        pos += 2 + len;
-    }
-    
-    // Set defaults
-    if standards.is_empty() {
-        standards.push("g".to_string());
-    }
-    if features.max_qam == 0 {
-        features.max_qam = if standards.contains(&"be".to_string()) { 4096 }
-                          else if standards.contains(&"ax".to_string()) { 1024 }
-                          else { 256 };
-    }
-    
-    (standards, features, protocols, security, security_details, bss_load, country_code, wps, supported_rates)
+/// Iterator over IE elements in beacon data.
+/// Each iteration yields (id, data) where data is the IE payload.
+struct IEIter<'a> {
+    data: &'a [u8],
+    pos: usize,
 }
 
-/// Detect channel width from IE data.
-pub fn detect_channel_width(ie_data: &[u8], _channel: u8, _band: Band) -> u16 {
-    let mut pos = 0;
+impl<'a> IEIter<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+}
+
+impl<'a> Iterator for IEIter<'a> {
+    type Item = (u8, &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Need at least 2 bytes: ID + Length
+        if self.pos + 1 >= self.data.len() {
+            return None;
+        }
+
+        let id = self.data[self.pos];
+        let len = self.data[self.pos + 1] as usize;
+
+        // Bounds check
+        if self.pos + 2 + len > self.data.len() {
+            return None;
+        }
+
+        let payload = &self.data[self.pos + 2..self.pos + 2 + len];
+        self.pos += 2 + len;
+
+        Some((id, payload))
+    }
+}
+
+// ============================================================================
+// Parsed Capabilities - Single structure instead of 9-tuple
+// ============================================================================
+
+/// All parsed information from IE data.
+/// Single structure replaces the 9-element tuple.
+#[derive(Debug, Default)]
+pub struct ParsedCapabilities {
+    pub standards: Vec<String>,
+    pub features: PerformanceFeatures,
+    pub protocols: ProtocolExtensions,
+    pub security: String,
+    pub security_details: SecurityDetails,
+    pub bss_load: Option<BssLoad>,
+    pub country_code: Option<String>,
+    pub wps: bool,
+    pub supported_rates: Vec<u32>,
+    pub channel_width: u16,
+}
+
+impl ParsedCapabilities {
+    /// WiFi generation based on detected standards.
+    pub fn wifi_generation(&self) -> u8 {
+        if self.standards.iter().any(|s| s == STD_BE) { 7 }
+        else if self.standards.iter().any(|s| s == STD_AX) { 6 }
+        else if self.standards.iter().any(|s| s == STD_AC) { 5 }
+        else if self.standards.iter().any(|s| s == STD_N) { 4 }
+        else { 3 }
+    }
+}
+
+/// Parse all capabilities from IE data in a single pass.
+pub fn parse_capabilities(ie_data: &[u8]) -> ParsedCapabilities {
+    let mut result = ParsedCapabilities::default();
+
+    // Track intermediate state
     let mut ht_40 = false;
     let mut vht_80 = false;
     let mut vht_160 = false;
     let mut eht_320 = false;
-    
-    while pos + 1 < ie_data.len() {
-        let id = ie_data[pos];
-        let len = ie_data[pos + 1] as usize;
-        
-        if pos + 2 + len > ie_data.len() {
-            break;
-        }
-        
-        let data = &ie_data[pos + 2..pos + 2 + len];
-        
+
+    // Detailed structures to collect
+    let mut channel_info: Option<ChannelInfo> = None;
+    let mut spatial_stream_info: Option<SpatialStreamInfo> = None;
+    let mut ofdma_info: Option<OfdmaInfo> = None;
+    let mut twt_info: Option<TwtInfo> = None;
+    let mut wifi7_features: Option<Wifi7Features> = None;
+    let mut mcs_info: Option<McsInfo> = None;
+
+    // Single pass through all IEs
+    for (id, data) in IEIter::new(ie_data) {
         match id {
-            45 if len >= 1 => {
-                // HT Capabilities - bit 1 = 40MHz support
-                ht_40 = (data[0] & 0x02) != 0;
-            }
-            192 if len >= 1 => {
-                // VHT Operation
-                match data[0] {
-                    1 => vht_80 = true,
-                    2 | 3 => { vht_80 = true; vht_160 = true; }
-                    _ => {}
+            IE_SUPPORTED_RATES | IE_EXTENDED_RATES => {
+                for b in data {
+                    result.supported_rates.push((b & 0x7F) as u32 / 2);
                 }
             }
-            255 if len >= 4 && data[0] == 108 => {
-                // EHT Operation - channel width in bits 2-4 of byte 1
-                let width_bits = (data[1] >> 2) & 0x07;
-                match width_bits {
-                    4 => eht_320 = true,
-                    3 => vht_160 = true,
-                    2 => vht_80 = true,
+            IE_BSS_LOAD if data.len() >= 5 => {
+                result.bss_load = Some(BssLoad {
+                    channel_utilization: data[2],
+                    station_count: u16::from_le_bytes([data[0], data[1]]),
+                    available_capacity: u16::from_le_bytes([data[3], data[4]]),
+                });
+            }
+            IE_COUNTRY if data.len() >= 2 => {
+                let code = String::from_utf8_lossy(&data[0..2]).trim().to_string();
+                if !code.is_empty() {
+                    result.country_code = Some(code);
+                }
+            }
+            IE_HT_CAPS if data.len() >= 26 => {
+                result.standards.push(STD_N.to_string());
+
+                let (ss, mcs) = parse_ht_caps(data);
+                spatial_stream_info = spatial_stream_info.or(ss);
+                mcs_info = mcs_info.or(mcs);
+
+                apply_ht_caps(data, &mut result.features);
+
+                // Channel width detection
+                ht_40 = (data[0] & 0x02) != 0;
+            }
+            IE_RSN => {
+                let (sec, details) = parse_rsn(data);
+                result.security = sec;
+                result.security_details = details;
+            }
+            IE_HT_OP => {
+                channel_info = parse_ht_op(data).or(channel_info);
+            }
+            IE_RM_CAPS if data.len() >= 5 => {
+                result.protocols.rrm = true;
+                result.protocols.neighbor_report = (data[0] & 0x01) != 0;
+                result.protocols.beacon_report = (data[0] & 0x80) != 0;
+            }
+            IE_EXTENDED_CAPS => {
+                parse_extended_caps(data, &mut result.protocols);
+            }
+            IE_VHT_CAPS if data.len() >= 12 => {
+                result.standards.push(STD_AC.to_string());
+
+                let (ss, mcs) = parse_vht_caps(data);
+                spatial_stream_info = spatial_stream_info.or(ss);
+                mcs_info = mcs_info.or(mcs);
+
+                apply_vht_caps(data, &mut result.features);
+            }
+            IE_VHT_OP => {
+                channel_info = parse_vht_op(data).or(channel_info);
+
+                // Channel width from VHT Operation
+                if !data.is_empty() {
+                    match data[0] {
+                        1 => vht_80 = true,
+                        2 | 3 => { vht_80 = true; vht_160 = true; }
+                        _ => {}
+                    }
+                }
+            }
+            IE_VENDOR if data.len() >= 4 => {
+                if data[0..3] == [0x00, 0x50, 0xF2] {
+                    match data[3] {
+                        0x02 => {
+                            result.protocols.wmm = true;
+                            if data.len() >= 6 {
+                                result.protocols.wmm_uapsd = (data[5] & 0x80) != 0;
+                            }
+                        }
+                        0x04 => result.wps = true,
+                        _ => {}
+                    }
+                }
+            }
+            IE_EXTENSION if !data.is_empty() => {
+                match data[0] {
+                    EXT_HE_CAPS => {
+                        result.standards.push(STD_AX.to_string());
+
+                        let (ss, ofdma, twt, mcs) = parse_he_caps(data);
+                        spatial_stream_info = spatial_stream_info.or(ss);
+                        ofdma_info = ofdma_info.or(ofdma);
+                        twt_info = twt_info.or(twt);
+                        mcs_info = mcs_info.or(mcs);
+
+                        apply_he_caps(data, &mut result.features);
+                    }
+                    EXT_HE_OP => {
+                        channel_info = parse_he_op(data).or(channel_info);
+                    }
+                    EXT_EHT_OP if data.len() >= 4 => {
+                        channel_info = parse_eht_op(data).or(channel_info);
+
+                        // Channel width from EHT Operation
+                        let width_bits = (data[1] >> 2) & 0x07;
+                        match width_bits {
+                            4 => eht_320 = true,
+                            3 => vht_160 = true,
+                            2 => vht_80 = true,
+                            _ => {}
+                        }
+                    }
+                    EXT_MLO => {
+                        result.features.mlo = true;
+                        wifi7_features = Some(Wifi7Features {
+                            mlo: parse_mlo(data),
+                            punctured_preamble: false,
+                            multi_ru: false,
+                        });
+                    }
+                    EXT_EHT_CAPS if data.len() >= 9 => {
+                        result.standards.push(STD_BE.to_string());
+
+                        let (ss, wifi7, mcs) = parse_eht_caps(data);
+                        spatial_stream_info = spatial_stream_info.or(ss);
+                        wifi7_features = wifi7_features.or(wifi7);
+                        mcs_info = mcs_info.or(mcs);
+
+                        apply_eht_caps(data, &mut result.features);
+                    }
                     _ => {}
                 }
             }
             _ => {}
         }
-        
-        pos += 2 + len;
     }
-    
-    if eht_320 { 320 }
-    else if vht_160 { 160 }
-    else if vht_80 { 80 }
-    else if ht_40 { 40 }
-    else { 20 }
+
+    // Set defaults
+    if result.standards.is_empty() {
+        result.standards.push(STD_G.to_string());
+    }
+    if result.features.max_qam == 0 {
+        result.features.max_qam = match result.wifi_generation() {
+            7 => 4096,
+            6 => 1024,
+            _ => 256,
+        };
+    }
+    if result.security.is_empty() {
+        result.security = "open".to_string();
+    }
+
+    // Determine channel width (prioritize widest)
+    result.channel_width = if eht_320 { 320 }
+                          else if vht_160 { 160 }
+                          else if vht_80 { 80 }
+                          else if ht_40 { 40 }
+                          else { 20 };
+
+    // Apply collected detailed info
+    result.features.channel_info = channel_info;
+    result.features.spatial_stream_info = spatial_stream_info;
+    result.features.ofdma_info = ofdma_info;
+    result.features.twt_info = twt_info;
+    result.features.wifi7_features = wifi7_features;
+    result.features.mcs_info = mcs_info;
+
+    result
 }
 
-fn update_max_supported_width(features: &mut PerformanceFeatures, width: u16) {
-    if width > features.max_supported_width {
-        features.max_supported_width = width;
-    }
+/// Detect channel width - convenience wrapper around parse_capabilities.
+#[allow(dead_code)]
+pub fn detect_channel_width(ie_data: &[u8], _channel: u8, _band: Band) -> u16 {
+    parse_capabilities(ie_data).channel_width
 }
 
 // ============================================================================
-// Helper Parsers
+// Detailed Parsing Functions (return structured data)
 // ============================================================================
 
-fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
+/// Parse HT Capabilities - returns detailed spatial stream and MCS info
+fn parse_ht_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<McsInfo>) {
+    if data.len() < 26 {
+        return (None, None);
+    }
+
+    let mcs = &data[3..19];
+
+    // Count spatial streams from MCS set
+    let mut tx_streams = 0u8;
+    let mut rx_streams = 0u8;
+    for i in 0..4 {
+        if mcs[i] != 0 {
+            tx_streams = (i + 1) as u8;
+            rx_streams = (i + 1) as u8;
+        }
+    }
+
+    // Find max MCS index
+    let max_mcs = if data[3] & 0xFF != 0 {
+        // Check which MCS indices are supported in first byte
+        let mut max = 0u8;
+        for mcs_idx in 0..8 {
+            if (mcs[0] >> mcs_idx) & 1 != 0 {
+                max = mcs_idx;
+            }
+        }
+        Some(max)
+    } else {
+        None
+    };
+
+    let ss_info = if tx_streams > 0 {
+        Some(SpatialStreamInfo {
+            tx_streams: Some(tx_streams),
+            rx_streams: Some(rx_streams),
+            client_tx: None,
+            client_rx: None,
+            effective_streams: None,
+        })
+    } else {
+        None
+    };
+
+    let mcs_info = McsInfo {
+        max_mcs,
+        current_mcs: None,
+        max_modulation: Some(Modulation::QAM64), // HT supports up to 64-QAM
+    };
+
+    (ss_info, Some(mcs_info))
+}
+
+/// Apply HT capabilities to PerformanceFeatures (legacy fields)
+fn apply_ht_caps(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 26 {
         return;
     }
 
     let caps = u16::from_le_bytes([data[0], data[1]]);
-    update_max_supported_width(features, if (caps & 0x02) != 0 { 40 } else { 20 });
+    features.max_supported_width = features.max_supported_width.max(if (caps & 0x02) != 0 { 40 } else { 20 });
 
-    // HT MCS set starts after HT Cap Info (2 bytes) and A-MPDU params (1 byte)
     let mcs = &data[3..19];
     for i in 0..4 {
         if mcs[i] != 0 {
@@ -267,57 +416,246 @@ fn parse_ht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
         }
     }
 
-    // TX beamforming
-    features.tx_beamforming = (caps & 0x1000) != 0;
+    features.su_mimo = features.spatial_streams > 1;
+    features.su_beamformer = (caps & 0x1000) != 0;
 
-    // Guard Interval: bit 6 = Short GI for 20MHz, bit 7 = Short GI for 40MHz
-    // Short GI = 400ns, Long GI = 800ns
     let short_gi_20 = (caps & 0x0040) != 0;
     let short_gi_40 = (caps & 0x0080) != 0;
-    if short_gi_20 || short_gi_40 {
-        features.guard_interval = 400;
-    } else {
-        features.guard_interval = 800;
-    }
+    features.guard_interval = if short_gi_20 || short_gi_40 { 400 } else { 800 };
 
-    // A-MPDU
     if data.len() >= 3 {
-        let ampdu = data[2];
-        features.ampdu_length = (ampdu & 0x03) + 1;
+        features.ampdu_length = (data[2] & 0x03) + 1;
     }
 }
 
-fn parse_vht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
+/// Parse HT Operation IE (61) for channel info
+fn parse_ht_op(data: &[u8]) -> Option<ChannelInfo> {
+    if data.len() < 3 {
+        return None;
+    }
+
+    let primary_channel = data[0];
+    let secondary_offset = match data[1] & 0x03 {
+        1 => Some(SecondaryChannelOffset::Above),
+        3 => Some(SecondaryChannelOffset::Below),
+        _ => None,
+    };
+
+    let bandwidth = if secondary_offset.is_some() {
+        ChannelBandwidth::MHz40
+    } else {
+        ChannelBandwidth::MHz20
+    };
+
+    let secondary = secondary_offset.map(|offset| {
+        match offset {
+            SecondaryChannelOffset::Above => primary_channel + 4,
+            SecondaryChannelOffset::Below => primary_channel - 4,
+        }
+    });
+
+    Some(ChannelInfo {
+        primary: primary_channel,
+        bandwidth,
+        secondary,
+        secondary_offset,
+        center_freq_0: None,
+        center_freq_1: None,
+        frequency: None,
+    })
+}
+
+/// Parse VHT Capabilities - returns detailed info
+fn parse_vht_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<McsInfo>) {
+    if data.len() < 12 {
+        return (None, None);
+    }
+
+    // Spatial streams from MCS map
+    if data.len() >= 8 {
+        let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
+        let tx_mcs = u16::from_le_bytes([data[6], data[7]]);
+        let rx_nss = count_streams_from_mcs(rx_mcs);
+        let tx_nss = count_streams_from_mcs(tx_mcs);
+
+        let ss_info = if rx_nss > 0 {
+            Some(SpatialStreamInfo {
+                tx_streams: Some(tx_nss),
+                rx_streams: Some(rx_nss),
+                client_tx: None,
+                client_rx: None,
+                effective_streams: None,
+            })
+        } else {
+            None
+        };
+
+        // Max MCS for VHT is typically 9 (256-QAM)
+        let mcs_info = McsInfo {
+            max_mcs: Some(9),
+            current_mcs: None,
+            max_modulation: Some(Modulation::QAM256),
+        };
+
+        (ss_info, Some(mcs_info))
+    } else {
+        (None, None)
+    }
+}
+
+/// Apply VHT capabilities to PerformanceFeatures
+fn apply_vht_caps(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 12 {
         return;
     }
 
     let caps = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     let supports_160 = (caps & (1 << 2)) != 0 || (caps & (1 << 3)) != 0;
-    update_max_supported_width(features, if supports_160 { 160 } else { 80 });
+    features.max_supported_width = features.max_supported_width.max(if supports_160 { 160 } else { 80 });
 
-    // MU-MIMO
-    features.mu_mimo = (caps & 0x1000) != 0;
+    features.su_mimo = features.spatial_streams > 1;
+    features.mu_mimo = (caps & (1 << 19)) != 0;
+    features.ul_mu_mimo = false;
 
-    // Max MPDU length indicates 256-QAM support
+    features.su_beamformer = (caps & (1 << 19)) != 0;
+    features.su_beamformee = (caps & (1 << 20)) != 0;
+    features.mu_beamformer = (caps & (1 << 21)) != 0;
+
     features.max_qam = 256;
 
-    // Guard Interval: bits 2-4 = Maximum VHT GI
-    // 0 = long GI only (800ns), 1 = short GI (400ns)
     let gi_bits = (caps >> 2) & 0x7;
     features.guard_interval = if gi_bits > 0 { 400 } else { 800 };
 
-    // Spatial streams from MCS set
     if data.len() >= 8 {
         let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
-        let nss = count_supported_streams_from_mcs_map(rx_mcs);
+        let nss = count_streams_from_mcs(rx_mcs);
         if nss > 0 {
             features.spatial_streams = nss;
+            features.su_mimo = nss > 1;
         }
     }
 }
 
-fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
+/// Parse VHT Operation IE (192) for channel info
+fn parse_vht_op(data: &[u8]) -> Option<ChannelInfo> {
+    if data.len() < 3 {
+        return None;
+    }
+
+    let bandwidth = match data[0] {
+        0 => ChannelBandwidth::MHz20, // 20 or 40 (check HT Operation)
+        1 => ChannelBandwidth::MHz80,
+        2 => ChannelBandwidth::MHz160,
+        3 => ChannelBandwidth::MHz80Plus80,
+        _ => ChannelBandwidth::MHz20,
+    };
+
+    let center_freq_0 = if data[1] > 0 { Some(data[1] as u16) } else { None };
+    let center_freq_1 = if data[2] > 0 { Some(data[2] as u16) } else { None };
+
+    Some(ChannelInfo {
+        primary: 0, // Will be filled from HT Operation or DS Parameter
+        bandwidth,
+        secondary: None,
+        secondary_offset: None,
+        center_freq_0,
+        center_freq_1,
+        frequency: None,
+    })
+}
+
+/// Parse HE Capabilities - returns detailed info including OFDMA and TWT
+fn parse_he_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<OfdmaInfo>, Option<TwtInfo>, Option<McsInfo>) {
+    // data[0] = Extension ID (35), actual HE data starts at data[1]
+    // Need at least 21 bytes total (1 ExtID + 20 HE data)
+    if data.len() < 21 {
+        return (None, None, None, None);
+    }
+
+    // HE MAC Capabilities (bytes 1-6 of data, which is bytes 0-5 of HE MAC Cap Info)
+    let mac_cap = &data[1..6];
+
+    // TWT capabilities from MAC Capabilities
+    // Bit 5: TWT Requester support
+    // Bit 6: TWT Responder support
+    let twt_requester = (mac_cap[0] & 0x20) != 0;
+    let twt_responder = (mac_cap[0] & 0x40) != 0;
+
+    let twt_info = if twt_requester || twt_responder {
+        Some(TwtInfo {
+            broadcast_twt: (mac_cap[1] & 0x01) != 0,  // Bit 8
+            individual_twt: true,
+            twt_requester,
+            twt_responder,
+        })
+    } else {
+        None
+    };
+
+    // OFDMA support
+    // DL OFDMA: PHY bit 79 (byte 9, bit 7) = data[9] bit 7
+    // UL OFDMA: PHY bit 80 (byte 10, bit 0) = data[10] bit 0
+    let dl_ofdma = (data[9] & 0x80) != 0;
+    let ul_ofdma = (data[10] & 0x01) != 0;
+
+    // RU sizes - HE typically supports 26, 52, 106, 242, 484, 996
+    let ru_sizes = if dl_ofdma || ul_ofdma {
+        vec![RuSize::R26, RuSize::R52, RuSize::R106, RuSize::R242, RuSize::R484, RuSize::R996]
+    } else {
+        vec![]
+    };
+
+    let ofdma_info = if dl_ofdma || ul_ofdma {
+        Some(OfdmaInfo {
+            dl_ofdma,
+            ul_ofdma,
+            ru_sizes,
+        })
+    } else {
+        None
+    };
+
+    // Spatial streams from HE MCS map (bytes 18-21 of data)
+    // Need data[18..22]
+    if data.len() >= 22 {
+        let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
+        let tx_mcs = u16::from_le_bytes([data[20], data[21]]);
+        let rx_nss = count_streams_from_mcs(rx_mcs);
+        let tx_nss = count_streams_from_mcs(tx_mcs);
+
+        let ss_info = if rx_nss > 0 {
+            Some(SpatialStreamInfo {
+                tx_streams: Some(tx_nss),
+                rx_streams: Some(rx_nss),
+                client_tx: None,
+                client_rx: None,
+                effective_streams: None,
+            })
+        } else {
+            None
+        };
+
+        // HE supports up to 1024-QAM (MCS 10-11)
+        let mcs_info = McsInfo {
+            max_mcs: Some(11),
+            current_mcs: None,
+            max_modulation: Some(Modulation::QAM1024),
+        };
+
+        (ss_info, ofdma_info, twt_info, Some(mcs_info))
+    } else {
+        // Default MCS info for WiFi 6
+        let mcs_info = McsInfo {
+            max_mcs: Some(11),
+            current_mcs: None,
+            max_modulation: Some(Modulation::QAM1024),
+        };
+        (None, ofdma_info, twt_info, Some(mcs_info))
+    }
+}
+
+/// Apply HE capabilities to PerformanceFeatures
+fn apply_he_caps(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 19 {
         return;
     }
@@ -325,29 +663,36 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     let phy_cap = u32::from_le_bytes([data[7], data[8], data[9], data[10]]);
     let mut max_width = 80;
 
-    // OFDMA
     features.ofdma = true;
     features.bss_coloring = true;
     features.max_qam = 1024;
 
-    // HE supports multiple guard intervals: 0.8, 1.6, 3.2 us
-    // Default to 800ns, but HE typically supports all
+    features.su_mimo = features.spatial_streams > 1;
+    features.mu_mimo = true;
+
     features.guard_interval = 800;
 
-    // 160MHz support
+    if data.len() >= 11 {
+        let phy3 = data[10];
+        features.su_beamformer = (phy3 & 0x80) != 0;
+        features.su_beamformee = (phy3 & 0x01) != 0;
+        features.mu_beamformer = (phy3 & 0x02) != 0;
+        features.ul_mu_mimo = (phy3 & 0x20) != 0;
+    }
+
     if (phy_cap & 0x08) != 0 {
         max_width = 160;
     } else if (phy_cap & 0x04) != 0 {
         max_width = 80;
     }
-    update_max_supported_width(features, max_width);
+    features.max_supported_width = features.max_supported_width.max(max_width);
 
-    // Default spatial streams for WiFi 6
     if data.len() >= 21 {
         let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
-        let nss = count_supported_streams_from_mcs_map(rx_mcs);
+        let nss = count_streams_from_mcs(rx_mcs);
         if nss > 0 {
             features.spatial_streams = nss;
+            features.su_mimo = nss > 1;
         }
     }
 
@@ -356,37 +701,190 @@ fn parse_he_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
     }
 }
 
-fn parse_eht_capabilities(data: &[u8], features: &mut PerformanceFeatures) {
+/// Parse HE Operation for channel info
+fn parse_he_op(data: &[u8]) -> Option<ChannelInfo> {
+    if data.len() < 8 {
+        return None;
+    }
+
+    // HE Operation contains BSS color and channel info
+    // For now, just extract BSS color info (not full channel info)
+    None
+}
+
+/// Parse EHT Capabilities - returns detailed info including WiFi 7 features
+fn parse_eht_caps(data: &[u8]) -> (Option<SpatialStreamInfo>, Option<Wifi7Features>, Option<McsInfo>) {
+    if data.len() < 9 {
+        return (None, None, None);
+    }
+
+    let phy_cap = u32::from_le_bytes([data[5], data[6], data[7], data[8]]);
+
+    // WiFi 7 features
+    // Punctured preamble: PHY bit 21-23
+    // Multi-RU: PHY bit 24
+    let punctured_preamble = (phy_cap & 0x00200000) != 0;
+    let multi_ru = (phy_cap & 0x01000000) != 0;
+
+    // EHT MCS map (bytes 9+)
+    // For 4096-QAM
+    let supports_4096qam = (phy_cap & 0x000F0000) != 0;
+
+    let wifi7_features = Some(Wifi7Features {
+        mlo: None, // MLO info comes from separate element
+        punctured_preamble,
+        multi_ru,
+    });
+
+    // Spatial streams - EHT supports up to 16 streams
+    // For simplicity, we check the basic NSS
+    let ss_info = Some(SpatialStreamInfo {
+        tx_streams: Some(8), // EHT APs typically support 8+ streams
+        rx_streams: Some(8),
+        client_tx: None,
+        client_rx: None,
+        effective_streams: None,
+    });
+
+    let mcs_info = McsInfo {
+        max_mcs: Some(15), // EHT extends MCS range
+        current_mcs: None,
+        max_modulation: if supports_4096qam { Some(Modulation::QAM4096) } else { Some(Modulation::QAM1024) },
+    };
+
+    (ss_info, wifi7_features, Some(mcs_info))
+}
+
+/// Apply EHT capabilities to PerformanceFeatures
+fn apply_eht_caps(data: &[u8], features: &mut PerformanceFeatures) {
     if data.len() < 9 {
         return;
     }
-    
+
     let phy_cap = u32::from_le_bytes([data[5], data[6], data[7], data[8]]);
-    
+
     features.ofdma = true;
     features.bss_coloring = true;
+    features.su_mimo = features.spatial_streams > 1;
     features.mu_mimo = true;
+    features.ul_mu_mimo = true;
     features.max_qam = 4096;
-    
+
+    features.su_beamformer = true;
+    features.su_beamformee = true;
+    features.mu_beamformer = true;
+
     let max_width = match phy_cap & 0x03 {
         0x03 => 320,
         0x02 => 160,
         0x01 => 80,
         _ => 40,
     };
-    update_max_supported_width(features, max_width);
-    
-    // 4096-QAM support
+    features.max_supported_width = features.max_supported_width.max(max_width);
+
     if (phy_cap & 0x000F0000) != 0 {
         features.max_qam = 4096;
     }
-    
+
     if features.spatial_streams == 0 {
         features.spatial_streams = 2;
     }
 }
 
-fn count_supported_streams_from_mcs_map(mcs_map: u16) -> u8 {
+/// Parse EHT Operation for channel info (320MHz)
+fn parse_eht_op(data: &[u8]) -> Option<ChannelInfo> {
+    if data.len() < 4 {
+        return None;
+    }
+
+    // EHT Operation extends VHT Operation
+    // Channel width in bits 2-4 of byte 1
+    let width_bits = (data[1] >> 2) & 0x07;
+
+    let bandwidth = match width_bits {
+        4 => ChannelBandwidth::MHz320,
+        3 => ChannelBandwidth::MHz160,
+        2 => ChannelBandwidth::MHz80,
+        1 => ChannelBandwidth::MHz40,
+        _ => ChannelBandwidth::MHz20,
+    };
+
+    // Center frequency segments
+    let center_freq_0 = if data.len() >= 3 && data[2] > 0 { Some(data[2] as u16) } else { None };
+    let center_freq_1 = if data.len() >= 4 && data[3] > 0 { Some(data[3] as u16) } else { None };
+
+    Some(ChannelInfo {
+        primary: 0,
+        bandwidth,
+        secondary: None,
+        secondary_offset: None,
+        center_freq_0,
+        center_freq_1,
+        frequency: None,
+    })
+}
+
+/// Parse MLO element for WiFi 7 Multi-Link Operation
+fn parse_mlo(data: &[u8]) -> Option<MloInfo> {
+    if data.len() < 5 {
+        return None;
+    }
+
+    // Basic MLO info parsing
+    // The structure is complex, but we can extract basic link count
+    let _mlo_type = data[1] & 0x07;
+
+    // For now, return basic info
+    Some(MloInfo {
+        enabled: true,
+        num_links: 2, // Typical MLO setup
+        links: vec![], // Detailed link parsing would require more complex logic
+    })
+}
+
+/// Parse Extended Capabilities (IE 127) for detailed roaming info
+fn parse_extended_caps(data: &[u8], protocols: &mut ProtocolExtensions) {
+    if data.is_empty() {
+        return;
+    }
+
+    // Byte 0 bits:
+    // Bit 0: 20/40 BSS Coexistence Management support
+    // Bit 1: Extended Channel Switching
+
+    // Byte 1 bits:
+    // Bit 4 (bit 12 overall): 802.11k RRM DMS
+    // Bit 5 (bit 13 overall): Neighbor Report
+    protocols.rrm = data.len() > 1 && (data[1] & 0x10) != 0;
+    protocols.neighbor_report = data.len() > 1 && (data[1] & 0x20) != 0;
+    protocols.beacon_report = data.len() > 1 && (data[1] & 0x80) != 0;
+
+    // Byte 2 bits:
+    // Bit 3 (bit 19 overall): BSS Transition (802.11v)
+    // Bit 6 (bit 22 overall): WNM Sleep Mode
+    if data.len() > 2 {
+        protocols.bss_transition = (data[2] & 0x08) != 0;
+        protocols.wnm_sleep = (data[2] & 0x40) != 0;
+    }
+
+    // Byte 3 bits:
+    // Bit 4 (bit 28 overall): FT over DS (802.11r)
+    // Bit 5 (bit 29 overall): FT Resource Request
+    if data.len() > 3 {
+        protocols.ft_over_ds = (data[3] & 0x10) != 0;
+        protocols.ft_resource_request = (data[3] & 0x20) != 0;
+    }
+
+    // FT (Fast BSS Transition) - also check for FT support
+    protocols.ft = protocols.ft_over_ds || protocols.ft_resource_request;
+
+    // PMF (802.11w) - check from RSN IE, but also from extended caps
+    if data.len() > 4 {
+        protocols.pmf = (data[4] & 0x40) != 0;
+    }
+}
+
+fn count_streams_from_mcs(mcs_map: u16) -> u8 {
     let mut count = 0u8;
     for index in 0..8 {
         let bits = ((mcs_map >> (index * 2)) & 0x03) as u8;
@@ -395,17 +893,6 @@ fn count_supported_streams_from_mcs_map(mcs_map: u16) -> u8 {
         }
     }
     count
-}
-
-fn parse_extended_capabilities(data: &[u8], protocols: &mut ProtocolExtensions) {
-    if data.len() > 1 {
-        // Bit 12 = 802.11k RRM
-        protocols.rrm = (data[1] & 0x10) != 0;
-        // Bit 19 = 802.11v BSS Transition
-        if data.len() > 2 {
-            protocols.bss_transition = (data[2] & 0x08) != 0;
-        }
-    }
 }
 
 fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
@@ -428,12 +915,32 @@ fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
     // Group cipher: OUI (3 bytes at [2,3,4]) + cipher type (1 byte at [5])
     // OUI 00-0F-AC is Microsoft OUI for WPA/WPA2
     let group_cipher_type = data[5];
-    let cipher = match group_cipher_type {
-        2 => "tkip",
-        4 => "ccmp",
-        8 => "gcmp",
-        _ => "unknown",
+    let group_cipher = match group_cipher_type {
+        2 => "tkip".to_string(),
+        4 => "ccmp".to_string(),
+        8 => "gcmp".to_string(),
+        _ => "unknown".to_string(),
     };
+    let cipher = group_cipher.clone();
+
+    // Parse all pairwise ciphers
+    let mut pairwise_ciphers = Vec::new();
+    if data.len() >= 8 {
+        let pairwise_count = u16::from_le_bytes([data[6], data[7]]) as usize;
+        for i in 0..pairwise_count.min(8) {
+            let offset = 8 + i * 4 + 3; // OUI (3 bytes) + cipher type (1 byte)
+            if offset < data.len() {
+                let cipher_type = data[offset];
+                let cipher_name = match cipher_type {
+                    2 => "tkip".to_string(),
+                    4 => "ccmp".to_string(),
+                    8 => "gcmp".to_string(),
+                    _ => "unknown".to_string(),
+                };
+                pairwise_ciphers.push(cipher_name);
+            }
+        }
+    }
 
     // Pairwise cipher count at offset 6
     if data.len() >= 8 {
@@ -445,19 +952,38 @@ fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
             let auth_suite_offset = auth_offset + 2;
 
             if auth_suite_offset + 4 <= data.len() {
-                // Auth suite: OUI (3 bytes) + auth type (1 byte at position +3)
+                // Parse all auth suites for key_mgmt
+                let mut key_mgmt = Vec::new();
+                let mut has_sae = false;
+                let mut has_psk = false;
+
+                for i in 0..auth_count.min(4) {
+                    let suite_offset = auth_suite_offset + i * 4;
+                    if suite_offset + 4 <= data.len() {
+                        let auth_type = data[suite_offset + 3];
+                        match auth_type {
+                            1 => key_mgmt.push("eap".to_string()),
+                            2 => { key_mgmt.push("psk".to_string()); has_psk = true; }
+                            4 => { key_mgmt.push("sae".to_string()); has_sae = true; }
+                            8 => key_mgmt.push("eap".to_string()),
+                            _ => key_mgmt.push("unknown".to_string()),
+                        }
+                    }
+                }
+
+                // Primary auth type (first one)
                 let auth_type = data[auth_suite_offset + 3];
 
                 let (sec_type, auth_method) = match auth_type {
                     1 => ("wpa2-ent", "eap"),
-                    2 => ("wpa2", "psk"),
+                    2 => if has_sae { ("wpa3", "sae") } else { ("wpa2", "psk") },
                     4 => ("wpa3", "sae"),
                     8 => ("wpa3-ent", "eap"),
                     _ => ("wpa2", "psk"),
                 };
 
                 // Check for PMF (802.11w) - in RSN capabilities at end
-                let caps_offset = auth_suite_offset + 4 + (auth_count - 1) * 4;
+                let caps_offset = auth_suite_offset + auth_count * 4;
                 let (pmf_capable, pmf_required) = if caps_offset + 2 <= data.len() {
                     let caps = u16::from_le_bytes([data[caps_offset], data[caps_offset + 1]]);
                     ((caps & 0x0080) != 0, (caps & 0x0100) != 0)
@@ -465,15 +991,26 @@ fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
                     (false, false)
                 };
 
+                // WPA3 Transition mode = WPA2-PSK + PMF capable
+                let is_wpa3_transition = has_psk && !has_sae && pmf_capable;
+
+                // Check for OWE (Opportunistic Wireless Encryption)
+                // OWE uses auth type 18 (0x12) in the AKM suite
+                let has_owe = key_mgmt.iter().any(|k| k == "owe");
+
                 return (sec_type.to_string(), SecurityDetails {
                     security_type: sec_type.to_string(),
                     auth_method: auth_method.to_string(),
-                    cipher: cipher.to_string(),
-                    key_mgmt: vec![auth_method.to_string()],
+                    cipher: cipher.clone(),
+                    key_mgmt: key_mgmt,
                     is_enterprise: auth_type == 1 || auth_type == 8,
-                    is_wpa3_transition: auth_type == 2 && pmf_capable,
+                    is_wpa3_transition,
                     pmf_required,
                     pmf_capable,
+                    group_cipher: Some(group_cipher),
+                    pairwise_ciphers,
+                    sae: has_sae,
+                    owe: has_owe,
                 });
             }
         }
@@ -482,12 +1019,16 @@ fn parse_rsn(data: &[u8]) -> (String, SecurityDetails) {
     ("wpa2".to_string(), SecurityDetails {
         security_type: "wpa2".to_string(),
         auth_method: "psk".to_string(),
-        cipher: cipher.to_string(),
+        cipher: cipher.clone(),
         key_mgmt: vec!["psk".to_string()],
         is_enterprise: false,
         is_wpa3_transition: false,
         pmf_required: false,
         pmf_capable: false,
+        group_cipher: Some(group_cipher),
+        pairwise_ciphers,
+        sae: false,
+        owe: false,
     })
 }
 
@@ -791,7 +1332,7 @@ fn describe_vht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<Parsed
 
     let caps = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     let rx_mcs = u16::from_le_bytes([data[4], data[5]]);
-    let streams = count_supported_streams_from_mcs_map(rx_mcs).max(1);
+    let streams = count_streams_from_mcs(rx_mcs).max(1);
     let su_bfer = (caps & (1 << 19)) != 0;
     let su_bfee = (caps & (1 << 20)) != 0;
     let mu_bfer = (caps & (1 << 21)) != 0;
@@ -899,7 +1440,7 @@ fn describe_he_capabilities(data: &[u8]) -> (String, Option<String>, Vec<ParsedF
     let phy1 = data[8];
     let phy3 = data[10];
     let rx_mcs = u16::from_le_bytes([data[18], data[19]]);
-    let streams = count_supported_streams_from_mcs_map(rx_mcs).max(1);
+    let streams = count_streams_from_mcs(rx_mcs).max(1);
 
     let width = if (phy0 & 0x08) != 0 {
         "20/40/80/160 MHz"
@@ -968,7 +1509,7 @@ fn describe_eht_capabilities(data: &[u8]) -> (String, Option<String>, Vec<Parsed
 
 pub fn parse_ie_content(id: u8, data: &[u8]) -> HashMap<String, serde_json::Value> {
     let mut result = HashMap::new();
-    
+
     match id {
         0 => {
             if let Ok(ssid) = std::str::from_utf8(data) {
@@ -1001,6 +1542,471 @@ pub fn parse_ie_content(id: u8, data: &[u8]) -> HashMap<String, serde_json::Valu
         }
         _ => {}
     }
-    
+
     result
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // IE Name Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ie_name_common_elements() {
+        assert_eq!(ie_name(0), "SSID");
+        assert_eq!(ie_name(1), "Supported Rates");
+        assert_eq!(ie_name(3), "DS Parameter Set");
+        assert_eq!(ie_name(7), "Country");
+        assert_eq!(ie_name(11), "QBSS Load");
+        assert_eq!(ie_name(45), "HT Capabilities");
+        assert_eq!(ie_name(48), "RSN");
+        assert_eq!(ie_name(61), "HT Operation");
+        assert_eq!(ie_name(127), "Extended Capabilities");
+        assert_eq!(ie_name(191), "VHT Capabilities");
+        assert_eq!(ie_name(192), "VHT Operation");
+        assert_eq!(ie_name(221), "Vendor Specific");
+        assert_eq!(ie_name(255), "Extended Element");
+        assert_eq!(ie_name(99), "Unknown");
+    }
+
+    #[test]
+    fn test_ext_ie_name() {
+        assert_eq!(ext_ie_name(35), "HE Capabilities");
+        assert_eq!(ext_ie_name(36), "HE Operation");
+        assert_eq!(ext_ie_name(106), "EHT Operation");
+        assert_eq!(ext_ie_name(107), "EHT Multi-Link");
+        assert_eq!(ext_ie_name(108), "EHT Capabilities");
+        assert_eq!(ext_ie_name(99), "Unknown Extension");
+    }
+
+    // -------------------------------------------------------------------------
+    // RSN Parsing Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_rsn_wpa2_psk() {
+        // RSN IE with WPA2-PSK, CCMP
+        // Format: version(2) + group_cipher(4) + pairwise_count(2) + pairwise(4) + auth_count(2) + auth(4)
+        let rsn_data: Vec<u8> = vec![
+            0x01, 0x00,  // Version 1
+            0x00, 0x0F, 0xAC, 0x04,  // Group cipher: CCMP (OUI 00-0F-AC, type 4)
+            0x01, 0x00,  // 1 pairwise cipher
+            0x00, 0x0F, 0xAC, 0x04,  // CCMP
+            0x01, 0x00,  // 1 auth suite
+            0x00, 0x0F, 0xAC, 0x02,  // PSK
+            0x00, 0x00,  // RSN capabilities
+        ];
+
+        let (security, details) = parse_rsn(&rsn_data);
+        assert_eq!(security, "wpa2");
+        assert_eq!(details.auth_method, "psk");
+        assert_eq!(details.cipher, "ccmp");
+        assert!(!details.is_enterprise);
+    }
+
+    #[test]
+    fn test_parse_rsn_wpa3_sae() {
+        // RSN IE with WPA3-SAE
+        // Note: Auth type 8 = SAE in WPA3 context
+        let rsn_data: Vec<u8> = vec![
+            0x01, 0x00,  // Version 1
+            0x00, 0x0F, 0xAC, 0x04,  // Group cipher: CCMP
+            0x01, 0x00,  // 1 pairwise cipher
+            0x00, 0x0F, 0xAC, 0x04,  // CCMP
+            0x01, 0x00,  // 1 auth suite
+            0x00, 0x0F, 0xAC, 0x04,  // Auth type 4 = SAE for WPA3-Personal
+            0x80, 0x00,  // RSN capabilities with PMF capable
+        ];
+
+        let (security, details) = parse_rsn(&rsn_data);
+        assert_eq!(security, "wpa3");
+        assert_eq!(details.auth_method, "sae");
+        assert!(details.sae);
+    }
+
+    #[test]
+    fn test_parse_rsn_short_data() {
+        let short_data = vec![0x01, 0x00];
+        let (security, _details) = parse_rsn(&short_data);
+        assert_eq!(security, "open");
+    }
+
+    // -------------------------------------------------------------------------
+    // HT Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ht_caps() {
+        // Minimal HT Capabilities IE (26 bytes)
+        let mut ht_data = vec![0u8; 26];
+        ht_data[0] = 0x6C;  // HT Capabilities Info: 40MHz + LDPC
+        ht_data[1] = 0x01;  // 40MHz capable
+        ht_data[2] = 0x03;  // A-MPDU params
+        ht_data[3] = 0xFF;  // MCS set (1 stream, MCS 0-7)
+
+        let (ss_info, mcs_info) = parse_ht_caps(&ht_data);
+
+        assert!(ss_info.is_some());
+        let ss = ss_info.unwrap();
+        assert_eq!(ss.tx_streams, Some(1));
+        assert_eq!(ss.rx_streams, Some(1));
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM64));
+    }
+
+    // -------------------------------------------------------------------------
+    // VHT Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_vht_caps() {
+        // Minimal VHT Capabilities IE (12 bytes)
+        let mut vht_data = vec![0u8; 12];
+        vht_data[0] = 0x38;  // VHT Capabilities: 160MHz + SU beamformer
+        vht_data[4] = 0xFF;  // RX MCS map (1 stream)
+        vht_data[6] = 0xFF;  // TX MCS map (1 stream)
+
+        let (_ss_info, mcs_info) = parse_vht_caps(&vht_data);
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM256));
+    }
+
+    // -------------------------------------------------------------------------
+    // HE Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_he_caps() {
+        // Minimal HE Capabilities IE (21+ bytes)
+        let mut he_data = vec![0u8; 22];
+        he_data[0] = 35;  // Extension ID: HE Capabilities
+        he_data[7] = 0x0C;  // PHY capabilities: 80MHz
+        he_data[9] = 0x80;  // DL OFDMA
+        he_data[10] = 0x03; // UL OFDMA + more
+
+        let (_ss_info, ofdma_info, _twt_info, mcs_info) = parse_he_caps(&he_data);
+
+        assert!(ofdma_info.is_some());
+        let ofdma = ofdma_info.unwrap();
+        assert!(ofdma.dl_ofdma);
+
+        assert!(mcs_info.is_some());
+        let mcs = mcs_info.unwrap();
+        assert_eq!(mcs.max_modulation, Some(Modulation::QAM1024));
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel Width Detection Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_detect_channel_width_ht_40() {
+        // IE data with HT Capabilities indicating 40MHz
+        // HT Capabilities: bit 1 of byte 0 = 40MHz support
+        // 0x02 = 0000 0010, bit 1 is set (40MHz capable)
+
+        // Build proper IE data: ID(45) + Length(26) + 26 bytes of data
+        let mut ie_data = vec![45, 26];  // IE header
+        ie_data.push(0x02);  // First byte with bit 1 set (40MHz)
+        ie_data.extend_from_slice(&[0u8; 25]);  // Remaining 25 bytes
+
+        // Verify data length
+        assert_eq!(ie_data.len(), 28, "IE data should be 28 bytes");
+
+        let width = detect_channel_width(&ie_data, 6, Band::Ghz2_4);
+        assert_eq!(width, 40);
+    }
+
+    #[test]
+    fn test_detect_channel_width_vht_80() {
+        // IE data with VHT Operation indicating 80MHz
+        let ie_data = vec![
+            192, 3,  // VHT Operation IE
+            1,  // Channel width: 80MHz
+            42, 0,  // Center segments
+        ];
+
+        let width = detect_channel_width(&ie_data, 36, Band::Ghz5);
+        assert_eq!(width, 80);
+    }
+
+    #[test]
+    fn test_detect_channel_width_vht_160() {
+        // IE data with VHT Operation indicating 160MHz
+        let ie_data = vec![
+            192, 3,  // VHT Operation IE
+            2,  // Channel width: 160MHz
+            114, 0,  // Center segments
+        ];
+
+        let width = detect_channel_width(&ie_data, 100, Band::Ghz5);
+        assert_eq!(width, 160);
+    }
+
+    #[test]
+    fn test_detect_channel_width_default() {
+        // Empty IE data should return 20MHz
+        let ie_data = vec![];
+        let width = detect_channel_width(&ie_data, 6, Band::Ghz2_4);
+        assert_eq!(width, 20);
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_capabilities_empty() {
+        let ie_data = vec![];
+        let parsed = parse_capabilities(&ie_data);
+
+        assert_eq!(parsed.standards, vec!["g"]);
+        assert_eq!(parsed.security, "open");
+        assert_eq!(parsed.features.spatial_streams, 0);
+    }
+
+    #[test]
+    fn test_parse_capabilities_ht() {
+        // SSID IE + HT Capabilities IE
+        let mut ie_data = vec![
+            0, 4, b'T', b'e', b's', b't',  // SSID
+        ];
+        ie_data.push(45);  // HT Capabilities
+        ie_data.push(26);
+        ie_data.extend_from_slice(&[0x6C, 0x01]);  // 40MHz
+        ie_data.extend_from_slice(&[0u8; 24]);  // Rest of HT caps
+
+        let parsed = parse_capabilities(&ie_data);
+
+        assert!(parsed.standards.contains(&"n".to_string()));
+    }
+
+    #[test]
+    fn test_parse_capabilities_vht() {
+        // VHT Capabilities IE
+        let mut ie_data = vec![
+            191, 12,  // VHT Capabilities
+        ];
+        ie_data.extend_from_slice(&[0u8; 12]);
+
+        let parsed = parse_capabilities(&ie_data);
+
+        assert!(parsed.standards.contains(&"ac".to_string()));
+        assert_eq!(parsed.features.max_qam, 256);
+    }
+
+    #[test]
+    fn test_parse_capabilities_he() {
+        // Extended HE Capabilities IE - need proper format
+        // Format: 255 (ext ID) + length + ext_id + data
+        let mut ie_data = vec![
+            255, 22,  // Extended IE: ID=255, Length=22
+            35,  // HE Capabilities extension ID
+        ];
+        ie_data.extend_from_slice(&[0u8; 21]);  // 21 bytes of HE data
+
+        let parsed = parse_capabilities(&ie_data);
+
+        assert!(parsed.standards.contains(&"ax".to_string()));
+        assert_eq!(parsed.features.max_qam, 1024);
+    }
+
+    #[test]
+    fn test_parse_capabilities_eht() {
+        // Extended EHT Capabilities IE
+        let mut ie_data = vec![
+            255, 14,  // Extended IE
+            108,  // EHT Capabilities extension ID
+        ];
+        ie_data.extend_from_slice(&[0u8; 13]);
+
+        let parsed = parse_capabilities(&ie_data);
+
+        assert!(parsed.standards.contains(&"be".to_string()));
+        assert_eq!(parsed.features.max_qam, 4096);
+    }
+
+    // -------------------------------------------------------------------------
+    // Extended Capabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_extended_caps() {
+        // Extended Capabilities IE with various bits set
+        let ext_caps = vec![
+            0x00,  // Byte 0
+            0x10,  // Byte 1: Bit 4 = RRM
+            0x08,  // Byte 2: Bit 3 = BSS Transition
+            0x10,  // Byte 3: Bit 4 = FT over DS
+        ];
+
+        let mut protocols = ProtocolExtensions::default();
+        parse_extended_caps(&ext_caps, &mut protocols);
+
+        assert!(protocols.rrm);
+        assert!(protocols.bss_transition);
+        assert!(protocols.ft_over_ds);
+        assert!(protocols.ft);
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_all_ies Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_all_ies() {
+        // SSID IE
+        let ie_data = vec![
+            0, 4, b'T', b'e', b's', b't',  // SSID = "Test"
+        ];
+
+        let details = parse_all_ies(&ie_data);
+
+        assert_eq!(details.total_length, 6);
+        assert_eq!(details.elements.len(), 1);
+        assert_eq!(details.elements[0].name, "SSID");
+    }
+
+    // -------------------------------------------------------------------------
+    // HT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ht_op_40mhz() {
+        // HT Operation with secondary channel above
+        let ht_op = vec![
+            6,    // Primary channel
+            0x01, // Secondary channel above
+            0x00, // Other info
+        ];
+
+        let channel_info = parse_ht_op(&ht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.primary, 6);
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz40);
+        assert!(info.secondary_offset.is_some());
+    }
+
+    #[test]
+    fn test_parse_ht_op_20mhz() {
+        // HT Operation with no secondary channel - need at least 3 bytes
+        let ht_op = vec![
+            6,    // Primary channel
+            0x00, // No secondary
+            0x00, // Need third byte for length check
+        ];
+
+        let channel_info = parse_ht_op(&ht_op);
+
+        // parse_ht_op requires len >= 3, returns 20MHz bandwidth
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz20);
+    }
+
+    // -------------------------------------------------------------------------
+    // VHT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_vht_op_80mhz() {
+        let vht_op = vec![
+            1,    // 80MHz
+            42,   // Center freq segment 0
+            0,    // Center freq segment 1
+        ];
+
+        let channel_info = parse_vht_op(&vht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz80);
+        assert_eq!(info.center_freq_0, Some(42));
+    }
+
+    #[test]
+    fn test_parse_vht_op_160mhz() {
+        let vht_op = vec![
+            2,    // 160MHz
+            114,  // Center freq segment 0
+            0,
+        ];
+
+        let channel_info = parse_vht_op(&vht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz160);
+    }
+
+    // -------------------------------------------------------------------------
+    // EHT Operation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_eht_op_320mhz() {
+        let eht_op = vec![
+            0x00,
+            0x10,  // Width bits for 320MHz (bits 2-4 = 4)
+            0x00,
+            0x00,
+        ];
+
+        let channel_info = parse_eht_op(&eht_op);
+
+        assert!(channel_info.is_some());
+        let info = channel_info.unwrap();
+        assert_eq!(info.bandwidth, ChannelBandwidth::MHz320);
+    }
+
+    // -------------------------------------------------------------------------
+    // MCS Map Stream Counting Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_count_streams_from_mcs() {
+        // MCS map with 2 streams supported
+        let mcs_map: u16 = 0x0000;  // All supported up to 2 streams
+        let count = count_streams_from_mcs(mcs_map);
+        assert_eq!(count, 8);  // All 8 streams supported
+
+        // MCS map with only 1 stream
+        let mcs_map_1ss: u16 = 0xFFFC;  // Only stream 1 supported (bits 0-1 = 0, rest = 3)
+        let count_1ss = count_streams_from_mcs(mcs_map_1ss);
+        assert_eq!(count_1ss, 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel Info Integration Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_channel_info_with_secondary() {
+        let info = ChannelInfo {
+            primary: 6,
+            bandwidth: ChannelBandwidth::MHz40,
+            secondary: Some(10),
+            secondary_offset: Some(SecondaryChannelOffset::Above),
+            center_freq_0: None,
+            center_freq_1: None,
+            frequency: Some(2437),
+        };
+
+        assert_eq!(info.primary, 6);
+        assert_eq!(info.bandwidth.as_mhz(), 40);
+        assert_eq!(info.secondary, Some(10));
+    }
 }

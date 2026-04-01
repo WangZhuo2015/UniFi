@@ -184,6 +184,7 @@ fn get_current_network() -> Result<Option<RawBeacon>, ScanError> {
             uptime_ms: None,
             connected: true,
             link_rates: None,
+            local_adapter: None,
         }))
     }
 }
@@ -263,6 +264,7 @@ unsafe fn parse_cwnetwork(network: *mut Object, timestamp: u64) -> Option<RawBea
         uptime_ms: None,
         connected: false,
         link_rates: None,
+        local_adapter: None,
     })
 }
 
