@@ -137,9 +137,9 @@ fn print_table(beacons: &[&RawBeacon], show_ie: bool) {
         let ssid = b.ssid_string().unwrap_or("[Hidden]".into());
         let net = parse_beacon(b);
 
-        // Show highest standard (last in the list)
+        // Show highest standard (first in the list)
         let default_std = "?".to_string();
-        let highest_std = net.standards.last().unwrap_or(&default_std);
+        let highest_std = net.standards.first().unwrap_or(&default_std);
 
         println!("{:<32} {:<18} {:<4} {:<6} {:>4} dBm  {:<6}",
             truncate(&ssid, 32),

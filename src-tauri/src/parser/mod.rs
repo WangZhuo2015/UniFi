@@ -14,13 +14,56 @@ pub use ie::parse_all_ies;
 pub fn parse_beacon(raw: &RawBeacon) -> Network {
     let bssid = raw.bssid_string();
 
-    // Parse IE data - single pass, structured result
+    // Build standards from raw flags (set by nl80211 scanner from iw output)
+    // or fall back to IE data parsing
+    let standards = if raw.has_ht || raw.has_vht || raw.has_he || raw.has_eht {
+        // Use flags from iw output
+        let mut stds = Vec::new();
+        if raw.has_eht {
+            stds.push("be".to_string()); // WiFi 7
+        }
+        if raw.has_he {
+            stds.push("ax".to_string()); // WiFi 6
+        }
+        if raw.has_vht {
+            stds.push("ac".to_string()); // WiFi 5
+        }
+        if raw.has_ht {
+            stds.push("n".to_string()); // WiFi 4
+        }
+        if stds.is_empty() {
+            // No HT/VHT/HE/EHT, determine by band
+            if raw.band == Band::Ghz2_4 {
+                stds.push("g".to_string());
+            } else {
+                stds.push("a".to_string());
+            }
+        }
+        stds
+    } else {
+        // Fall back to IE data parsing
+        let parsed = ie::parse_capabilities(&raw.ie_data);
+        normalize_standards_for_band(parsed.standards, raw.band)
+    };
+
+    // Parse IE data for other features
     let parsed = ie::parse_capabilities(&raw.ie_data);
-    let standards = normalize_standards_for_band(parsed.standards, raw.band);
     let mut features = parsed.features;
     let channel_width = parsed.channel_width;
     let wifi_generation = detect_wifi_generation(&standards);
     features.max_supported_width = normalize_width_for_band(features.max_supported_width, raw.band);
+
+    // Use spatial streams from raw data if available
+    if let Some(ss) = raw.spatial_streams {
+        features.spatial_streams = ss;
+        features.spatial_stream_info = Some(SpatialStreamInfo {
+            tx_streams: Some(ss),
+            rx_streams: Some(ss),
+            client_tx: None,
+            client_rx: None,
+            effective_streams: None,
+        });
+    }
 
     // Populate primary channel in channel_info from raw data
     if let Some(ref mut ch_info) = features.channel_info {

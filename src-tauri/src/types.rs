@@ -70,6 +70,12 @@ pub struct RawBeacon {
     pub connected: bool,
     pub link_rates: Option<LinkRates>,
     pub local_adapter: Option<LocalAdapterCapabilities>,
+    // WiFi standard flags (parsed from iw output on Linux)
+    pub has_ht: bool,      // WiFi 4 (802.11n)
+    pub has_vht: bool,     // WiFi 5 (802.11ac)
+    pub has_he: bool,      // WiFi 6 (802.11ax)
+    pub has_eht: bool,     // WiFi 7 (802.11be)
+    pub spatial_streams: Option<u8>,
 }
 
 impl RawBeacon {

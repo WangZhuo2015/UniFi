@@ -19,9 +19,49 @@ impl Default for Nl80211Scanner {
 impl Nl80211Scanner {
     /// Create a new nl80211 scanner
     pub fn new() -> Self {
-        Self { interface: None }
+        // Auto-detect WiFi interface
+        let interface = Self::detect_wifi_interface();
+        Self { interface }
     }
-    
+
+    /// Auto-detect the first WiFi interface
+    #[cfg(target_os = "linux")]
+    fn detect_wifi_interface() -> Option<String> {
+        use std::process::Command;
+
+        // Try to get WiFi interface from iw dev
+        let output = Command::new("iw")
+            .arg("dev")
+            .output()
+            .ok()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.trim().starts_with("Interface ") {
+                return line.trim().strip_prefix("Interface ")
+                    .map(|s| s.trim().to_string());
+            }
+        }
+
+        // Fallback: check /sys/class/net for wireless interfaces
+        for entry in std::fs::read_dir("/sys/class/net").ok()? {
+            if let Ok(entry) = entry {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if std::path::Path::new(&format!("/sys/class/net/{}/wireless", name)).exists() {
+                    return Some(name);
+                }
+            }
+        }
+
+        // Last fallback: try wlan0
+        Some("wlan0".to_string())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn detect_wifi_interface() -> Option<String> {
+        None
+    }
+
     /// Set the interface to use
     pub fn with_interface(mut self, interface: impl Into<String>) -> Self {
         self.interface = Some(interface.into());
