@@ -227,11 +227,22 @@ fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon
         .unwrap()
         .as_secs();
 
-    let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+    #[cfg(target_os = "macos")]
+    {
+        let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+        // Disassociate from current network
+        let _ = Command::new(airport_path).args(["-z"]).output();
+        std::thread::sleep(Duration::from_millis(300));
+    }
 
-    // Disassociate from current network
-    let _ = Command::new(airport_path).args(["-z"]).output();
-    std::thread::sleep(Duration::from_millis(300));
+    #[cfg(target_os = "linux")]
+    {
+        // Set monitor mode on Linux
+        let _ = Command::new("ip").args(["link", "set", interface, "down"]).output();
+        let _ = Command::new("iw").args(["dev", interface, "set", "type", "monitor"]).output();
+        let _ = Command::new("ip").args(["link", "set", interface, "up"]).output();
+        std::thread::sleep(Duration::from_millis(300));
+    }
 
     let start = Instant::now();
     let total_duration = Duration::from_secs(SCAN_DURATION_SECS);
@@ -295,7 +306,21 @@ fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon
     }
 
     // Re-associate with network
-    let _ = Command::new(airport_path).args(["-a"]).output();
+    #[cfg(target_os = "macos")]
+    {
+        let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+        let _ = Command::new(airport_path).args(["-a"]).output();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Restore managed mode and reconnect
+        let _ = Command::new("ip").args(["link", "set", interface, "down"]).output();
+        let _ = Command::new("iw").args(["dev", interface, "set", "type", "managed"]).output();
+        let _ = Command::new("ip").args(["link", "set", interface, "up"]).output();
+        // Trigger wpa_supplicant to reconnect
+        let _ = Command::new("wpa_cli").args(["-i", interface, "reassociate"]).output();
+    }
 
     println!("Captured {} unique networks ({} packets)", networks.len(), total_packets);
     Ok(networks.into_values().collect())
@@ -465,6 +490,12 @@ fn parse_beacon_frame(data: &[u8], timestamp: u64, signal_dbm: i16) -> Option<Ra
         connected: false,
         link_rates: None,
         local_adapter: None,
+        // WiFi standard flags - will be parsed from IE data
+        has_ht: false,
+        has_vht: false,
+        has_he: false,
+        has_eht: false,
+        spatial_streams: None,
     })
 }
 

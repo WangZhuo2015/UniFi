@@ -2,5 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    unifi_lib::run()
+    #[cfg(feature = "gui")]
+    unifi_lib::run();
+
+    #[cfg(not(feature = "gui"))]
+    unifi_lib::cli::run();
 }

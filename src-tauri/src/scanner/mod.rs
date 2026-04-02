@@ -19,6 +19,9 @@ mod wlanapi;
 #[cfg(target_os = "linux")]
 mod nl80211;
 
+#[cfg(all(target_os = "linux", feature = "libpcap"))]
+mod libpcap;
+
 /// Scanner mode selection
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ScannerMode {
@@ -31,8 +34,11 @@ pub enum ScannerMode {
     /// Airport scanner (macOS only, legacy)
     #[cfg(target_os = "macos")]
     Airport,
-    /// Libpcap scanner (macOS/Linux, requires root)
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    /// Libpcap scanner (macOS, requires root)
+    #[cfg(target_os = "macos")]
+    Libpcap,
+    /// Libpcap scanner (Linux, requires root and libpcap feature)
+    #[cfg(all(target_os = "linux", feature = "libpcap"))]
     Libpcap,
 }
 
@@ -79,9 +85,16 @@ pub fn parse_scanner_mode(name: &str) -> ScannerMode {
 
     #[cfg(target_os = "linux")]
     {
+        #[cfg(feature = "libpcap")]
         match normalized.as_str() {
             "libpcap" => ScannerMode::Libpcap,
             _ => ScannerMode::Default,
+        }
+
+        #[cfg(not(feature = "libpcap"))]
+        {
+            let _ = normalized;
+            ScannerMode::Default
         }
     }
 
@@ -123,10 +136,15 @@ pub fn get_scanner_with_mode(_mode: ScannerMode) -> Box<dyn Scanner> {
 
     #[cfg(target_os = "linux")]
     {
+        #[cfg(feature = "libpcap")]
         match _mode {
             ScannerMode::Default => Box::new(nl80211::Nl80211Scanner::new()),
             ScannerMode::Libpcap => Box::new(libpcap::LibpcapScanner::new()),
-            _ => Box::new(nl80211::Nl80211Scanner::new()),
+        }
+
+        #[cfg(not(feature = "libpcap"))]
+        {
+            Box::new(nl80211::Nl80211Scanner::new())
         }
     }
 
@@ -158,7 +176,12 @@ pub fn list_scanners() -> Vec<(&'static str, bool, bool)> {
     #[cfg(target_os = "linux")]
     {
         result.push(("nl80211", true, false));
-        result.push(("Libpcap", true, true));
+
+        #[cfg(feature = "libpcap")]
+        {
+            let libpcap = libpcap::LibpcapScanner::new();
+            result.push(("Libpcap", libpcap.is_available(), true));
+        }
     }
 
     result
