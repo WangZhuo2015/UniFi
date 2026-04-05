@@ -199,12 +199,3 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
-
-/* Drag region for title bar */
-.drag-region {
-  -webkit-app-region: drag;
-}
-
-.no-drag {
-  -webkit-app-region: no-drag;
-}

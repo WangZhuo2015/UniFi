@@ -1,12 +1,13 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount } from 'svelte';
   import { locale, setLocale, t } from '$lib/i18n';
-  import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import type { Window } from '@tauri-apps/api/window';
 
   let isMaximized = $state(false);
   let isFocused = $state(true);
   let isTauri = $state(false);
-  let appWindow = $state<TauriWindow | null>(null);
+  let appWindow: Window | null = $state(null);
 
   function toggleLanguage() {
     setLocale($locale === 'zh-CN' ? 'en-US' : 'zh-CN');
@@ -31,7 +32,8 @@
         unlistenFocus = await appWindow.onFocusChanged(({ payload }) => {
           isFocused = payload;
         });
-      } catch {
+      } catch (e) {
+        console.error('TitleBar: Failed to get Tauri window:', e);
         isTauri = false;
         appWindow = null;
       }
@@ -64,10 +66,11 @@
 </script>
 
 <header
-  class="flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80"
+  class="flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80 select-none"
   class:opacity-80={!isFocused}
   data-testid="title-bar"
 >
+  <!-- Drag region: Logo and title -->
   <div data-tauri-drag-region class="flex min-w-0 items-center gap-2">
     <div class="flex h-5 w-5 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm">
       <svg class="h-3 w-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -77,9 +80,11 @@
     <h1 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200" data-testid="app-title">UniFi</h1>
   </div>
 
+  <!-- Drag region: Empty space in middle -->
   <div data-tauri-drag-region class="mx-3 min-w-0 flex-1"></div>
 
-  <div class="no-drag flex items-center gap-1">
+  <!-- Buttons: No drag region here -->
+  <div class="flex select-none items-center gap-1">
     <button
       type="button"
       class="h-7 rounded-md px-2 text-xs text-gray-600 transition-colors duration-150 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:bg-gray-700/80"

@@ -4,7 +4,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Network, NetworkGroup, ScanStats, SignalPoint } from './types';
+import type { Network, NetworkGroup, ScanStats, SignalPoint, ScannerInfo } from './types';
 
 // ============ Raw Data ============
 
@@ -37,6 +37,12 @@ export const isScanning = writable(false);
 
 /** Error message */
 export const error = writable<string | null>(null);
+
+/** Available scanners */
+export const availableScanners = writable<ScannerInfo[]>([]);
+
+/** Current scanner name */
+export const currentScanner = writable<string>('Default');
 
 // ============ Derived Data ============
 
@@ -159,20 +165,46 @@ export const ssidCount = derived(networks, ($networks) => {
 
 /** Scan for networks */
 export async function scan() {
+  // Prevent double scan
+  if (get(isScanning)) {
+    return;
+  }
+
   isScanning.set(true);
   error.set(null);
   const startedAt = performance.now();
 
   try {
-    const result = await invoke<Network[]>('scan_networks');
-    networks.set(result);
-    networkGroups.set(buildNetworkGroups(result));
-    scanStats.set(buildScanStats(result, Math.round(performance.now() - startedAt)));
+    const scannerName = get(currentScanner);
+    const result = scannerName === 'Default'
+      ? await invoke<Network[]>('scan_networks')
+      : await invoke<Network[]>('scan_networks_with_scanner', { scannerName });
+
+    if (Array.isArray(result)) {
+      networks.set(result);
+      networkGroups.set(buildNetworkGroups(result));
+      scanStats.set(buildScanStats(result, Math.round(performance.now() - startedAt)));
+    } else {
+      networks.set([]);
+      networkGroups.set([]);
+    }
   } catch (e) {
+    console.error('[Scan] Error:', e);
     error.set(String(e));
-    console.error('Scan error:', e);
+    networks.set([]);
+    networkGroups.set([]);
   } finally {
     isScanning.set(false);
+  }
+}
+
+/** Fetch available scanners */
+export async function fetchAvailableScanners() {
+  try {
+    const result = await invoke<ScannerInfo[]>('list_available_scanners');
+    availableScanners.set(result || []);
+  } catch (e) {
+    console.error('[Scanners] Error:', e);
   }
 }
 
@@ -182,7 +214,7 @@ export async function fetchCurrentNetwork() {
     const result = await invoke<Network | null>('current_network');
     currentNetwork.set(result);
   } catch (e) {
-    console.error('Current network error:', e);
+    console.error('[CurrentNetwork] Error:', e);
   }
 }
 

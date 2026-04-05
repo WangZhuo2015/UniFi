@@ -18,6 +18,12 @@ fn create_test_beacon(ie_data: Vec<u8>, channel: u8, band: Band) -> RawBeacon {
         connected: false,
         link_rates: None,
         local_adapter: None,
+        // WiFi standard flags - will be parsed from IE data
+        has_ht: false,
+        has_vht: false,
+        has_he: false,
+        has_eht: false,
+        spatial_streams: None,
     }
 }
 

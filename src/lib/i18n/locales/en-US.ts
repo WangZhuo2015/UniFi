@@ -184,5 +184,10 @@
   groupSummaryBestAp: 'Best AP',
   groupSummaryBands: 'Bands',
   groupSummaryChannels: 'Channels',
-  groupNoRoaming: 'No roaming hints'
+  groupNoRoaming: 'No roaming hints',
+  defaultScanner: 'Auto (Default)',
+  locationPermissionHint: 'System Settings > Privacy & Security > Location Services',
+  openLocationSettings: 'Grant Location Access',
+  locationPermissionReason: 'macOS requires Location permission to access WiFi SSID and BSSID data. Grant permission and scan again to see network details.',
+  locationPermissionRequired: 'Location Permission Required'
 } as const;

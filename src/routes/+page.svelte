@@ -1,5 +1,6 @@
 ﻿<script lang="ts">
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import {
     networks,
     scan,
@@ -14,7 +15,10 @@
     startMonitor,
     stopMonitor,
     networkGroups,
-    scanStats
+    scanStats,
+    availableScanners,
+    currentScanner,
+    fetchAvailableScanners
   } from '$lib/stores';
   import { locale, t, translateSignalQuality } from '$lib/i18n';
   import { cn, signalColor, signalQuality } from '$lib/utils';
@@ -24,18 +28,36 @@
   import RoamingTest from '$lib/components/RoamingTest.svelte';
   import VendorLogo from '$lib/components/VendorLogo.svelte';
   import Button from '$lib/components/ui/button.svelte';
+  import Dropdown from '$lib/components/ui/dropdown.svelte';
   import type { Network } from '$lib/types';
 
   let filterText = $state('');
   let activeBand = $state<'all' | '2.4' | '5' | '6'>('all');
   let activeTab = $state<'networks' | 'channels' | 'groups' | 'roaming'>('networks');
   let showIEDetails = $state(false);
-  let showExportMenu = $state(false);
   let showDetailsPane = $state(true);
   let sortKey = $state<
     'signal' | 'ssid' | 'bssid' | 'beacon' | 'minRate' | 'maxRate' | 'band' | 'channel' | 'width' | 'standard' | 'country' | 'generation' | 'uptime' | 'security' | 'seen'
   >('signal');
   let sortDirection = $state<'asc' | 'desc'>('desc');
+  let scannerDropdownOpen = $state(false);
+  let exportDropdownOpen = $state(false);
+
+  // Make dropdowns mutually exclusive
+  $effect(() => {
+    if (scannerDropdownOpen && exportDropdownOpen) {
+      exportDropdownOpen = false;
+    }
+  });
+
+  // Check if all networks are hidden - indicates missing location permission
+  const allNetworksHidden = $derived.by(() => {
+    if ($networks.length === 0) return false;
+    return $networks.every(n =>
+      (n.ssid === null || n.ssid === undefined) &&
+      n.bssid === '00:00:00:00:00:00'
+    );
+  });
 
   const filtered = $derived.by(() => {
     let list = $networks;
@@ -244,12 +266,38 @@
 
   onMount(() => {
     const timer = window.setTimeout(() => {
+      void fetchAvailableScanners();
       void fetchCurrentNetwork();
       void scan();
     }, 150);
 
     return () => window.clearTimeout(timer);
   });
+
+  function selectScanner(name: string) {
+    currentScanner.set(name);
+    void scan();
+  }
+
+  async function requestLocationPermission() {
+    try {
+      await invoke('request_location_permission');
+    } catch (e) {
+      console.error('Failed to request permission:', e);
+    }
+    await openLocationSettings();
+    setTimeout(() => void scan(), 2000);
+  }
+
+  async function openLocationSettings() {
+    try {
+      await invoke('open_url', { url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices' });
+    } catch {
+      try {
+        await invoke('open_url', { url: 'x-apple.systempreferences:com.apple.preference.security' });
+      } catch { /* ignore */ }
+    }
+  }
 </script>
 
 <div class="flex h-screen flex-col overflow-hidden rounded-lg border border-gray-200/50 bg-white text-gray-900 shadow-2xl dark:border-gray-700/50 dark:bg-gray-900 dark:text-gray-100">
@@ -267,15 +315,19 @@
       </div>
 
       <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        <div class="relative">
-          <Button variant="ghost" size="sm" onclick={() => showExportMenu = !showExportMenu}>{t($locale, 'export')}</Button>
-          {#if showExportMenu}
-            <div class="absolute right-0 top-full z-50 mt-1 min-w-36 rounded-lg border border-gray-200/80 bg-white py-1 shadow-xl backdrop-blur-xl dark:border-gray-700/80 dark:bg-gray-800">
-              <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={exportJSON}>{t($locale, 'exportJson')}</button>
-              <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={exportCSV}>{t($locale, 'exportCsv')}</button>
-            </div>
-          {/if}
-        </div>
+        <Dropdown label="{$currentScanner} ▾" bind:open={scannerDropdownOpen}>
+          <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50 {$currentScanner === 'Default' ? 'font-semibold text-blue-600 dark:text-blue-400' : ''}" onclick={() => { selectScanner('Default'); scannerDropdownOpen = false; }}>{t($locale, 'defaultScanner')}</button>
+          {#each $availableScanners as scanner (scanner.name)}
+            {#if scanner.available}
+              <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50 {$currentScanner === scanner.name ? 'font-semibold text-blue-600 dark:text-blue-400' : ''}" onclick={() => { selectScanner(scanner.name); scannerDropdownOpen = false; }}>{scanner.name}{#if scanner.requiresRoot}<span class="ml-1 text-xs text-amber-500">(root)</span>{/if}</button>
+            {/if}
+          {/each}
+        </Dropdown>
+
+        <Dropdown label="{t($locale, 'export')} ▾" bind:open={exportDropdownOpen} disabled={$networks.length === 0}>
+          <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={() => { exportJSON(); exportDropdownOpen = false; }}>{t($locale, 'exportJson')}</button>
+          <button class="mx-1 block w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50" onclick={() => { exportCSV(); exportDropdownOpen = false; }}>{t($locale, 'exportCsv')}</button>
+        </Dropdown>
 
         <Button variant="ghost" size="sm" onclick={toggleMonitoring}>
           {$isMonitoring ? t($locale, 'monitoring') : t($locale, 'startMonitoring')}
@@ -305,10 +357,25 @@
     <div class="border-b border-red-200/50 bg-red-50/80 px-4 py-2 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300">{$error}</div>
   {/if}
 
-  <div class="flex flex-1 flex-col overflow-hidden xl:flex-row">
+  {#if allNetworksHidden}
+    <div class="border-b border-amber-200/50 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-200">
+      <div class="flex items-center gap-3">
+        <svg class="h-5 w-5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div class="flex-1">
+          <p class="font-medium">{t($locale, 'locationPermissionRequired')}</p>
+          <p class="text-xs text-amber-700 dark:text-amber-300">{t($locale, 'locationPermissionReason')}</p>
+        </div>
+        <button type="button" class="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700" onclick={requestLocationPermission}>{t($locale, 'openLocationSettings')}</button>
+      </div>
+    </div>
+  {/if}
+
+  <div class="min-h-0 flex flex-1 flex-col overflow-hidden xl:flex-row">
     {#if activeTab === 'networks'}
       <div class={cn(
-        'flex min-w-0 flex-1 flex-col bg-gray-50/50 dark:bg-gray-800/50',
+        'flex min-h-0 min-w-0 flex-1 flex-col bg-gray-50/50 dark:bg-gray-800/50',
         showDetailsPane && $selectedNetwork
           ? 'xl:border-r xl:border-gray-200/50 xl:dark:border-gray-700/50'
           : 'w-full'
@@ -349,13 +416,13 @@
           </div>
         </div>
 
-        <div class="flex-1 overflow-hidden">
+        <div class="min-h-0 flex-1 overflow-hidden">
           {#if $isScanning && $networks.length === 0}
             <div class="py-12 text-center text-sm text-gray-400 dark:text-gray-500">{t($locale, 'scanningInProgress')}</div>
           {:else if filtered.length === 0}
             <div class="py-12 text-center text-sm text-gray-400 dark:text-gray-500">{t($locale, 'noNetworksFound')}</div>
           {:else}
-            <div class="h-full overflow-auto">
+            <div class="h-full overflow-y-auto overflow-x-auto">
               <div class="min-w-[92rem] pb-3">
                 <table class="w-full table-auto border-separate border-spacing-0 text-sm">
                   <thead class="sticky top-0 z-10 bg-gray-100/95 backdrop-blur dark:bg-gray-800/95">
@@ -408,7 +475,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {#each filtered as network (network.bssid)}
+                  {#each filtered as network, i (`${network.bssid}-${network.channel}-${i}`)}
                     <tr
                       data-testid="network-row"
                       class={cn(
@@ -455,7 +522,7 @@
 
       {#if $selectedNetwork && showDetailsPane}
       <div class={cn(
-        'min-w-0 overflow-y-auto bg-white dark:bg-gray-900',
+        'min-h-0 min-w-0 overflow-y-auto bg-white dark:bg-gray-900',
         'border-t border-gray-200/50 dark:border-gray-700/50 xl:w-[28rem] xl:shrink-0 xl:border-t-0'
       )}>
         {#if $selectedNetwork}

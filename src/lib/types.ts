@@ -242,3 +242,10 @@ export interface ScanStats {
   byStandard: Partial<Record<WiFiStandard, number>>;
   scanDurationMs: number;
 }
+
+/** Scanner information */
+export interface ScannerInfo {
+  name: string;
+  available: boolean;
+  requiresRoot: boolean;
+}

@@ -192,6 +192,12 @@ fn scan_windows() -> Result<Vec<RawBeacon>, ScanError> {
                     connected: false,
                     link_rates: None,
                     local_adapter: None,
+                    // WiFi standard flags - will be parsed from IE data
+                    has_ht: false,
+                    has_vht: false,
+                    has_he: false,
+                    has_eht: false,
+                    spatial_streams: None,
                 });
             }
 
@@ -331,6 +337,12 @@ fn current_windows() -> Result<Option<RawBeacon>, ScanError> {
                 connected: true,
                 link_rates: None,
                 local_adapter: local_adapter.clone(),
+                // WiFi standard flags - will be parsed from IE data or netsh
+                has_ht: false,
+                has_vht: false,
+                has_he: false,
+                has_eht: false,
+                spatial_streams: local_adapter.as_ref().map(|a| a.rx_spatial_streams),
             };
 
             beacon.connected = true;

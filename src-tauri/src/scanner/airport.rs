@@ -180,6 +180,12 @@ fn parse_network_dict(dict: &plist::Dictionary, now: u64) -> Result<RawBeacon, S
         connected: false,
         link_rates: None,
         local_adapter: None,
+        // WiFi standard flags - parsed from IE data
+        has_ht: false,
+        has_vht: false,
+        has_he: false,
+        has_eht: false,
+        spatial_streams: None,
     })
 }
 
@@ -243,6 +249,12 @@ fn parse_current_info(output: &str) -> Option<RawBeacon> {
         connected: true,
         link_rates: None,
         local_adapter: None,
+        // WiFi standard flags - not available from airport -I
+        has_ht: false,
+        has_vht: false,
+        has_he: false,
+        has_eht: false,
+        spatial_streams: None,
     })
 }
 
@@ -283,6 +295,12 @@ impl CurrentNetworkInfo {
             connected: true,
             link_rates: None,
             local_adapter: None,
+            // WiFi standard flags - not available from airport -I
+            has_ht: false,
+            has_vht: false,
+            has_he: false,
+            has_eht: false,
+            spatial_streams: None,
         }
     }
 }

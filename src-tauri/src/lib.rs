@@ -97,6 +97,36 @@ mod gui {
     }
 
     #[tauri::command]
+    pub fn open_url(url: String) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("Failed to open URL: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", &url])
+                .spawn()
+                .map_err(|e| format!("Failed to open URL: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("Failed to open URL: {}", e))?;
+            Ok(())
+        }
+    }
+
+    #[tauri::command]
     pub fn list_available_scanners() -> Vec<ScannerInfo> {
         let scanners = scanner::list_scanners();
         scanners.into_iter().map(|(name, available, requires_root)| ScannerInfo {
@@ -104,6 +134,43 @@ mod gui {
             available,
             requires_root,
         }).collect()
+    }
+
+    /// Request Location permission on macOS using CoreLocation
+    #[tauri::command]
+    pub fn request_location_permission() -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            use objc::runtime::{Class, Object};
+            use objc::{msg_send, sel, sel_impl};
+
+            unsafe {
+                // Get CLLocationManager class
+                let cls = match Class::get("CLLocationManager") {
+                    Some(c) => c,
+                    None => return Err("CLLocationManager not available".into()),
+                };
+
+                // Create a CLLocationManager instance
+                let manager: *mut Object = msg_send![cls, new];
+                if manager.is_null() {
+                    return Err("Failed to create CLLocationManager".into());
+                }
+
+                // Request When-In-Use authorization
+                // This will trigger the system permission dialog
+                let _: () = msg_send![manager, requestWhenInUseAuthorization];
+
+                // Release the manager (not needed after requesting)
+                let _: () = msg_send![manager, release];
+            }
+            Ok(())
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(())
+        }
     }
 
     #[tauri::command]
@@ -192,7 +259,9 @@ mod gui {
                 get_scan_stats,
                 get_ie_details,
                 lookup_vendor,
+                open_url,
                 list_available_scanners,
+                request_location_permission,
                 start_monitor,
                 stop_monitor,
                 start_roaming_test,

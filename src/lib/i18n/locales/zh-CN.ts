@@ -186,5 +186,10 @@ export const zhCN = {
   groupSummaryBestAp: '最佳 AP',
   groupSummaryBands: '覆盖频段',
   groupSummaryChannels: '使用信道',
-  groupNoRoaming: '未发现漫游提示'
+  groupNoRoaming: '未发现漫游提示',
+  defaultScanner: '自动 (默认)',
+  locationPermissionHint: '系统设置 > 隐私与安全性 > 定位服务',
+  openLocationSettings: '授权位置访问',
+  locationPermissionReason: 'macOS 要求位置权限才能获取 WiFi 网络的 SSID 和 BSSID 信息。授权后重新扫描即可显示网络详情。',
+  locationPermissionRequired: '需要位置权限'
 } satisfies TranslationMessages;

@@ -198,7 +198,7 @@
   {#if latencyData.length > 0}
     <div class="rounded-xl border border-gray-200/60 bg-white p-4 dark:border-gray-700/60 dark:bg-gray-800/50">
       <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t($locale, 'realtimeLatencyChart')}</h3>
-      <svg width="100%" height={chartHeight} class="overflow-visible">
+      <svg width="100%" height={chartHeight} class="overflow-hidden">
         {#each [0, 25, 50, 75, 100] as pct}
           <line x1="0" y1={chartHeight * (1 - pct / 100)} x2="100%" y2={chartHeight * (1 - pct / 100)} stroke="currentColor" class="text-gray-200 dark:text-gray-700" />
         {/each}

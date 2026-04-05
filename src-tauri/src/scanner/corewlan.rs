@@ -89,7 +89,14 @@ fn scan_with_corewlan() -> Result<Vec<RawBeacon>, ScanError> {
         let networks: *mut Object = msg_send![interface, scanForNetworksWithSSID:nil error:&mut error];
 
         if !error.is_null() {
-            return Err(ScanError::CommandFailed("Scan failed".into()));
+            // Try to extract error description
+            let err_desc: *mut Object = msg_send![error, localizedDescription];
+            let desc_str = if !err_desc.is_null() {
+                nsstring_to_string(err_desc)
+            } else {
+                "Unknown error".to_string()
+            };
+            return Err(ScanError::CommandFailed(format!("CoreWLAN scan failed: {}. Location permission may be required.", desc_str)));
         }
 
         if networks.is_null() {
@@ -185,6 +192,12 @@ fn get_current_network() -> Result<Option<RawBeacon>, ScanError> {
             connected: true,
             link_rates: None,
             local_adapter: None,
+            // WiFi standard flags - not available from CoreWLAN
+            has_ht: false,
+            has_vht: false,
+            has_he: false,
+            has_eht: false,
+            spatial_streams: None,
         }))
     }
 }
@@ -265,6 +278,12 @@ unsafe fn parse_cwnetwork(network: *mut Object, timestamp: u64) -> Option<RawBea
         connected: false,
         link_rates: None,
         local_adapter: None,
+        // WiFi standard flags - not available from CoreWLAN
+        has_ht: false,
+        has_vht: false,
+        has_he: false,
+        has_eht: false,
+        spatial_streams: None,
     })
 }
 
