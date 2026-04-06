@@ -718,7 +718,7 @@
             </section>
 
             <div class="grid gap-4 2xl:grid-cols-2">
-            {#each $networkGroups as group (group.ssid)}
+            {#each $networkGroups as group, i (`group-${i}-${group.ssid ?? 'hidden'}`)}
               {@const bestNetwork = [...group.networks].sort((left, right) => right.signal - left.signal)[0]}
               {@const protocolBadges = groupProtocols(group)}
               <article class="rounded-2xl border border-gray-200/60 bg-white/95 p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700/60 dark:bg-gray-800/85" data-testid="group-card">
@@ -754,7 +754,7 @@
                 </div>
 
                 <div class="mt-4 space-y-2">
-                  {#each [...group.networks].sort((left, right) => right.signal - left.signal) as net (net.bssid)}
+                  {#each [...group.networks].sort((left, right) => right.signal - left.signal) as net, j (`${net.bssid}-${net.channel}-${j}`)}
                     <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200/70 bg-gray-50 px-3 py-3 text-sm dark:border-gray-700/60 dark:bg-gray-700/30">
                       <div class="min-w-0">
                         <div class="flex items-center gap-2">

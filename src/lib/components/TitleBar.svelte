@@ -66,25 +66,26 @@
 </script>
 
 <header
-  class="flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80 select-none"
+  data-tauri-drag-region
+  class="flex h-11 items-center justify-between border-b border-gray-200/50 bg-white/80 px-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-700/50 dark:bg-gray-900/80"
   class:opacity-80={!isFocused}
   data-testid="title-bar"
 >
   <!-- Drag region: Logo and title -->
-  <div data-tauri-drag-region class="flex min-w-0 items-center gap-2">
-    <div class="flex h-5 w-5 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm">
+  <div class="flex min-w-0 cursor-default items-center gap-2">
+    <div class="pointer-events-none flex h-5 w-5 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm">
       <svg class="h-3 w-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
       </svg>
     </div>
-    <h1 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200" data-testid="app-title">UniFi</h1>
+    <h1 class="pointer-events-none truncate text-sm font-semibold text-gray-800 dark:text-gray-200" data-testid="app-title">UniFi</h1>
   </div>
 
   <!-- Drag region: Empty space in middle -->
-  <div data-tauri-drag-region class="mx-3 min-w-0 flex-1"></div>
+  <div class="mx-3 min-w-0 flex-1 cursor-default"></div>
 
-  <!-- Buttons: No drag region here -->
-  <div class="flex select-none items-center gap-1">
+  <!-- Buttons: No drag region here - use pointer-events to prevent blocking -->
+  <div class="flex items-center gap-1" style="pointer-events: auto;">
     <button
       type="button"
       class="h-7 rounded-md px-2 text-xs text-gray-600 transition-colors duration-150 hover:bg-gray-200/80 dark:text-gray-400 dark:hover:bg-gray-700/80"
