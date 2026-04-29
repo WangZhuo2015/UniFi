@@ -23,6 +23,9 @@
 use crate::scanner::{RawBeacon, Scanner};
 use crate::types::{Band, ScanError};
 
+#[cfg(target_os = "macos")]
+use crate::scanner::channel;
+
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::process::Command;
@@ -181,19 +184,19 @@ fn is_macos_wifi_interface(name: &str) -> bool {
     name == "en0"
 }
 
-/// Set WiFi channel on macOS using airport
+/// Set WiFi channel on macOS using available methods
 #[cfg(target_os = "macos")]
 fn set_channel(_interface: &str, channel: u8) -> bool {
-    let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+    use crate::scanner::channel::{set_channel as channel_set, ChannelResult};
 
-    // Use -c<channel> syntax (no space)
-    let result = Command::new(airport_path)
-        .arg(format!("-c{}", channel))
-        .output();
-
-    match result {
-        Ok(output) => output.status.success(),
-        Err(_) => false,
+    match channel_set(_interface, channel) {
+        ChannelResult::Success => true,
+        ChannelResult::NotSupported => {
+            // Channel control not available on this macOS version
+            // Will do passive capture without channel hopping
+            false
+        }
+        ChannelResult::Failed(_) => false,
     }
 }
 
@@ -229,10 +232,14 @@ fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon
 
     #[cfg(target_os = "macos")]
     {
-        let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
-        // Disassociate from current network
-        let _ = Command::new(airport_path).args(["-z"]).output();
-        std::thread::sleep(Duration::from_millis(300));
+        // Disassociate from current network if airport available
+        use crate::scanner::channel::airport_available;
+        if airport_available() {
+            let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+            let _ = Command::new(airport_path).args(["-z"]).output();
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        // On macOS 26+, we rely on passive capture without disassociating
     }
 
     #[cfg(target_os = "linux")]
@@ -308,8 +315,12 @@ fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon
     // Re-associate with network
     #[cfg(target_os = "macos")]
     {
-        let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
-        let _ = Command::new(airport_path).args(["-a"]).output();
+        use crate::scanner::channel::airport_available;
+        if airport_available() {
+            let airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport";
+            let _ = Command::new(airport_path).args(["-a"]).output();
+        }
+        // On macOS 26+, user may need to manually reconnect via System Settings
     }
 
     #[cfg(target_os = "linux")]
