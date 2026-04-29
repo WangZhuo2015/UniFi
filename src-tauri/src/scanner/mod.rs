@@ -4,6 +4,9 @@
 
 use crate::types::{Network, RawBeacon, ScanError};
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod channel;
+
 #[cfg(target_os = "macos")]
 mod airport;
 
