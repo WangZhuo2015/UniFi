@@ -23,9 +23,6 @@
 use crate::scanner::{RawBeacon, Scanner};
 use crate::types::{Band, ScanError};
 
-#[cfg(target_os = "macos")]
-use crate::scanner::channel;
-
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::process::Command;
@@ -212,8 +209,18 @@ fn set_channel(interface: &str, channel: u8) -> bool {
     }
 }
 
-/// Capture beacons with channel hopping
+/// Capture beacons with channel hopping (where supported)
 fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon>, ScanError> {
+    use crate::scanner::channel::{airport_available, is_channel_control_supported};
+
+    let can_hop = is_channel_control_supported() && airport_available();
+
+    if !can_hop {
+        // macOS 26+ or system without airport: do passive capture
+        return capture_beacons_passive(interface);
+    }
+
+    // Full channel hopping for older macOS and Linux
     // Focus on most common channels
     let channels: Vec<u8> = vec![
         1, 6, 11,           // 2.4 GHz
@@ -335,6 +342,76 @@ fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon
 
     println!("Captured {} unique networks ({} packets)", networks.len(), total_packets);
     Ok(networks.into_values().collect())
+}
+
+/// Passive beacon capture without channel hopping
+/// Used on macOS 26+ where airport tool is unavailable
+#[cfg(target_os = "macos")]
+fn capture_beacons_passive(interface: &str) -> Result<Vec<RawBeacon>, ScanError> {
+    let mut networks: HashMap<[u8; 6], RawBeacon> = HashMap::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    println!("Starting passive capture on {} (macOS 26+ mode)...", interface);
+
+    // Use existing WiFi channel (whatever the interface is on)
+    // Capture for extended duration since we can't hop
+    let total_duration = Duration::from_secs(SCAN_DURATION_SECS * 2); // Longer duration
+
+    let mut cap = match pcap::Capture::from_device(interface)
+        .map_err(|e| ScanError::CommandFailed(format!("Failed to open device: {}", e)))?
+        .promisc(true)
+        .rfmon(true)
+        .timeout(CHANNEL_DWELL_MS as i32)
+        .immediate_mode(true)
+        .snaplen(4096)
+        .open()
+    {
+        Ok(cap) => cap,
+        Err(e) => return Err(ScanError::CommandFailed(format!("Failed to open capture: {}", e))),
+    };
+
+    let _ = cap.filter("wlan type mgt subtype beacon", true);
+
+    let start = Instant::now();
+    let mut total_packets = 0;
+
+    while start.elapsed() < total_duration {
+        match cap.next_packet() {
+            Ok(packet) => {
+                total_packets += 1;
+
+                if let Some((beacon, _signal)) = parse_packet(packet.data, now) {
+                    networks.entry(beacon.bssid)
+                        .and_modify(|existing| {
+                            if beacon.ie_data.len() > existing.ie_data.len() {
+                                *existing = beacon.clone();
+                            }
+                        })
+                        .or_insert(beacon);
+                }
+            }
+            Err(pcap::Error::TimeoutExpired) => {
+                // Log progress every 5 seconds
+                if total_packets > 0 && start.elapsed().as_secs() % 5 == 0 {
+                    println!("  Captured {} packets, {} networks", total_packets, networks.len());
+                }
+                continue;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    println!("Passive capture complete: {} unique networks ({} packets)", networks.len(), total_packets);
+    Ok(networks.into_values().collect())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_beacons_passive(interface: &str) -> Result<Vec<RawBeacon>, ScanError> {
+    // Linux should always use channel hopping
+    Err(ScanError::NotSupported)
 }
 
 /// Parse a captured packet
