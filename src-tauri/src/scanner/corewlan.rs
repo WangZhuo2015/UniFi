@@ -2,15 +2,21 @@
 //!
 //! Uses CoreWLAN framework for WiFi scanning.
 //! This is the App Store compatible scanner.
-//! Works on macOS 10.6+ and is the recommended scanner for macOS 26+.
+//!
+//! **✅ macOS 26 (Tahoe) Compatible**
+//! This is the recommended scanner for macOS 26+ since the Apple80211 framework
+//! (airport tool) was removed in macOS 26 Tahoe.
 //!
 //! # Limitations
 //! - BSSID returns null unless the app has Location permission
-//! - No IE data available (no WiFi standard detection)
-//! - For full functionality, use the Airport or Libpcap scanner
+//! - No IE data available (no WiFi standard detection from raw beacons)
+//! - Security type is inferred from CWNetwork properties, not raw IE parsing
+//!
+//! For full IE data on older macOS, use the Airport scanner.
+//! For libpcap capture (requires root), use the Libpcap scanner.
 //!
 //! # Permissions Required
-//! - Location permission for BSSID access
+//! - Location permission for BSSID access (request via `request_location_permission`)
 //! - No special entitlements for basic scanning
 
 use crate::scanner::{RawBeacon, Scanner};

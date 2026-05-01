@@ -1,8 +1,18 @@
 //! macOS Airport Scanner
 //!
 //! Uses the airport CLI tool to scan WiFi networks.
-//! Note: This tool may not work on macOS 26+.
-//! Use CoreWLAN scanner for better compatibility.
+//!
+//! **⚠️ DEPRECATED: This scanner is NOT available on macOS 26 (Tahoe) and later.**
+//! Apple removed the Apple80211 framework in macOS 26, including the airport CLI tool.
+//!
+//! On macOS 26+, use CoreWLAN scanner instead:
+//! - `unifi-cli scan --scanner corewlan`
+//! - Or let the app auto-select CoreWLAN as default
+//!
+//! For older macOS versions (10.x - 15.x), this scanner provides:
+//! - Full IE data for WiFi standard detection
+//! - BSSID and signal information
+//! - Beacon frame details
 
 use crate::scanner::{RawBeacon, Scanner};
 use crate::types::{Band, ScanError};

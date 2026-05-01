@@ -86,14 +86,16 @@ See [CLI Usage Guide](./docs/CLI_USAGE.md) for complete documentation.
 
 ## Platform Support
 
-| Platform | Scanner | IE Data | WiFi 6/7 | Privilege Required |
-|----------|---------|---------|----------|-------------------|
-| macOS | airport | ✓ Full | ✓ | None |
-| macOS | corewlan | ✗ None | ✗ | None |
-| macOS | libpcap | ✓ Full | ✓ | root |
-| Windows | WlanAPI | Partial | Partial | None |
-| Linux | nl80211 | ✓ Full | ✓ | None |
-| Linux | libpcap | ✓ Full | ✓ | root |
+| Platform | Scanner | IE Data | WiFi 6/7 | macOS 26+ | Privilege Required |
+|----------|---------|---------|----------|-----------|-------------------|
+| macOS | airport | ✓ Full | ✓ | ❌ Not available | None |
+| macOS | corewlan | ✗ None | ✗ | ✓ Works | None (location for BSSID) |
+| macOS | libpcap | ✓ Full | ✓ | ⚠️ Limited (no channel hop) | root |
+| Windows | WlanAPI | Partial | Partial | N/A | None |
+| Linux | nl80211 | ✓ Full | ✓ | N/A | None |
+| Linux | libpcap | ✓ Full | ✓ | N/A | root |
+
+**Note:** macOS 26 (Tahoe) removed the Apple80211 framework. Use CoreWLAN scanner on macOS 26+.
 
 ## Tech Stack
 
