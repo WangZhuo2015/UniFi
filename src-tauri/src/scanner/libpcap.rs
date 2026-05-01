@@ -211,16 +211,16 @@ fn set_channel(interface: &str, channel: u8) -> bool {
 
 /// Capture beacons with channel hopping (where supported)
 fn capture_beacons_with_channel_hopping(interface: &str) -> Result<Vec<RawBeacon>, ScanError> {
-    use crate::scanner::channel::{airport_available, is_channel_control_supported};
-
-    let can_hop = is_channel_control_supported() && airport_available();
-
-    if !can_hop {
-        // macOS 26+ or system without airport: do passive capture
-        return capture_beacons_passive(interface);
+    // macOS: check if airport is available for channel hopping
+    #[cfg(target_os = "macos")]
+    {
+        use crate::scanner::channel::airport_available;
+        if !airport_available() {
+            // macOS 26+ without airport: do passive capture
+            return capture_beacons_passive(interface);
+        }
     }
-
-    // Full channel hopping for older macOS and Linux
+    // Linux: always supports channel hopping via iw command
     // Focus on most common channels
     let channels: Vec<u8> = vec![
         1, 6, 11,           // 2.4 GHz
