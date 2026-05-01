@@ -25,6 +25,36 @@ mod nl80211;
 #[cfg(all(target_os = "linux", feature = "libpcap"))]
 mod libpcap;
 
+/// Check if running on macOS 26 (Tahoe) or later where Apple80211 is removed
+#[cfg(target_os = "macos")]
+fn is_macos_26_or_later() -> bool {
+    use std::process::Command;
+
+    // Get macOS version
+    let output = Command::new("sw_vers")
+        .arg("-productVersion")
+        .output();
+
+    match output {
+        Ok(o) => {
+            let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            // Parse major version (26.x.x -> 26)
+            if let Some(major) = version.split('.').next() {
+                if let Ok(v) = major.parse::<u32>() {
+                    return v >= 26;
+                }
+            }
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_macos_26_or_later() -> bool {
+    false
+}
+
 /// Scanner mode selection
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ScannerMode {
@@ -120,16 +150,24 @@ pub fn get_scanner_with_mode(_mode: ScannerMode) -> Box<dyn Scanner> {
     {
         match _mode {
             ScannerMode::Default => {
-                // Prefer Airport for full IE data, fall back to CoreWLAN
-                let airport = airport::AirportScanner::new();
-                if airport.is_available() {
-                    Box::new(airport)
-                } else {
+                // On macOS 26+, Airport is not available - use CoreWLAN
+                if is_macos_26_or_later() {
                     Box::new(corewlan::CoreWlanScanner::new())
+                } else {
+                    // On older macOS, prefer Airport for full IE data, fall back to CoreWLAN
+                    let airport = airport::AirportScanner::new();
+                    if airport.is_available() {
+                        Box::new(airport)
+                    } else {
+                        Box::new(corewlan::CoreWlanScanner::new())
+                    }
                 }
             }
             ScannerMode::CoreWLAN => Box::new(corewlan::CoreWlanScanner::new()),
-            ScannerMode::Airport => Box::new(airport::AirportScanner::new()),
+            ScannerMode::Airport => {
+                // On macOS 26+, this will return NotSupported error
+                Box::new(airport::AirportScanner::new())
+            }
             ScannerMode::Libpcap => Box::new(libpcap::LibpcapScanner::new()),
         }
     }
@@ -161,14 +199,20 @@ pub fn list_scanners() -> Vec<(&'static str, bool, bool)> {
 
     #[cfg(target_os = "macos")]
     {
-        let corewlan = corewlan::CoreWlanScanner::new();
-        result.push(("CoreWLAN", corewlan.is_available(), false));
+        // CoreWLAN is always available on macOS
+        result.push(("CoreWLAN", true, false));
 
-        let airport = airport::AirportScanner::new();
-        result.push(("Airport", airport.is_available(), false));
+        // Airport availability depends on macOS version
+        let airport_available = !is_macos_26_or_later() && {
+            let airport = airport::AirportScanner::new();
+            airport.is_available()
+        };
+        result.push(("Airport", airport_available, false));
 
+        // Libpcap requires root and has limitations on macOS 26+
         let libpcap = libpcap::LibpcapScanner::new();
-        result.push(("Libpcap", libpcap.is_available(), true));
+        let libpcap_available = libpcap.is_available();
+        result.push(("Libpcap", libpcap_available, true));
     }
 
     #[cfg(target_os = "windows")]
