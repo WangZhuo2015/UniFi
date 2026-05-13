@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Raw beacon data from a WiFi network
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RawBeacon {
     /// Network SSID (may be hidden/empty)
     pub ssid: Option<String>,
@@ -51,28 +51,6 @@ pub struct RawBeacon {
     pub metadata: std::collections::HashMap<String, String>,
 }
 
-impl Default for RawBeacon {
-    fn default() -> Self {
-        Self {
-            ssid: None,
-            bssid: None,
-            signal: None,
-            channel: None,
-            frequency: None,
-            wifi_standard: None,
-            max_rate: None,
-            security: None,
-            ie_data: None,
-            vendor_ies: Vec::new(),
-            mcs_indices: Vec::new(),
-            channel_width: None,
-            guard_interval: None,
-            is_secured: false,
-            metadata: std::collections::HashMap::new(),
-        }
-    }
-}
-
 impl RawBeacon {
     /// Create a new empty beacon
     pub fn new() -> Self {
@@ -87,9 +65,9 @@ impl RawBeacon {
     /// Get band (2.4GHz, 5GHz, or 6GHz)
     pub fn band(&self) -> Option<Band> {
         match self.frequency {
-            Some(f) if f >= 2400 && f < 2500 => Some(Band::Band24),
-            Some(f) if f >= 5000 && f < 6000 => Some(Band::Band5),
-            Some(f) if f >= 6000 && f < 7125 => Some(Band::Band6),
+            Some(f) if (2400..2500).contains(&f) => Some(Band::Band24),
+            Some(f) if (5000..6000).contains(&f) => Some(Band::Band5),
+            Some(f) if (6000..7125).contains(&f) => Some(Band::Band6),
             _ => None,
         }
     }

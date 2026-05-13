@@ -92,15 +92,15 @@ impl ScannerRegistry {
         let best = scanners.values()
             .filter(|s| s.is_available())
             .max_by(|a, b| {
-                let a_score = Self::score_scanner(a);
-                let b_score = Self::score_scanner(b);
+                let a_score = Self::score_scanner(a.as_ref().as_ref());
+                let b_score = Self::score_scanner(b.as_ref().as_ref());
                 a_score.cmp(&b_score)
             });
         
         best.cloned()
     }
     
-    fn score_scanner(scanner: &Box<dyn Scanner>) -> u32 {
+    fn score_scanner(scanner: &dyn Scanner) -> u32 {
         let caps = scanner.capabilities();
         let mut score = 0u32;
         
@@ -274,8 +274,8 @@ mod tests {
             needs_privilege: true,
         });
 
-        let score1 = ScannerRegistry::score_scanner(&scanner1);
-        let score2 = ScannerRegistry::score_scanner(&scanner2);
+        let score1 = ScannerRegistry::score_scanner(scanner1.as_ref());
+        let score2 = ScannerRegistry::score_scanner(scanner2.as_ref());
         
         // Scanner with IE data and no privilege requirement should score higher
         assert!(score1 > score2);
