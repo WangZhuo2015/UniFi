@@ -165,9 +165,14 @@ fn scan_windows() -> Result<Vec<RawBeacon>, ScanError> {
             );
 
             if status != ERROR_SUCCESS.0 {
-                bss_query_errors.push(format!(
-                    "WlanGetNetworkBssList failed with Win32 error {status}"
-                ));
+                // ERROR_NOT_READY (0x80342002) means WiFi is disabled or WLAN service not ready
+                if status == 0x80342002 {
+                    bss_query_errors.push("WiFi adapter is disabled or not ready".to_string());
+                } else {
+                    bss_query_errors.push(format!(
+                        "WlanGetNetworkBssList failed with Win32 error {status}"
+                    ));
+                }
                 continue;
             }
 
@@ -208,6 +213,13 @@ fn scan_windows() -> Result<Vec<RawBeacon>, ScanError> {
         let _ = WlanCloseHandle(client_handle, None);
 
         if results.is_empty() && queried_interfaces > 0 && bss_query_errors.len() == queried_interfaces {
+            // All interfaces failed - check if it's because WiFi is disabled
+            let wifi_disabled = bss_query_errors.iter().all(|e|
+                e.contains("disabled") || e.contains("not ready")
+            );
+            if wifi_disabled {
+                return Err(ScanError::CommandFailed("WiFi adapter is disabled. Please enable WiFi to scan networks.".to_string()));
+            }
             return Err(ScanError::CommandFailed(bss_query_errors.join("; ")));
         }
 
