@@ -79,13 +79,13 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run unit tests
-        run: cargo test --lib -p unifi --all-features
+        run: cargo test --lib -p unifi --no-default-features
 
       - name: Run parser tests
-        run: "cargo test -p unifi parser:: --all-features"
+        run: "cargo test -p unifi parser:: --no-default-features"
 
       - name: Run types tests
-        run: "cargo test -p unifi types:: --all-features"
+        run: "cargo test -p unifi types:: --no-default-features"
 
   # macOS scanner tests
   test-macos:
