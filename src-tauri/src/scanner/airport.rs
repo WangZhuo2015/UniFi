@@ -204,6 +204,7 @@ fn parse_bssid(s: &str) -> Result<[u8; 6], ScanError> {
     Ok(bssid)
 }
 
+#[allow(dead_code)]
 fn parse_current_info(output: &str) -> Option<RawBeacon> {
     let mut ssid: Option<Vec<u8>> = None;
     let mut bssid = [0u8; 6];
