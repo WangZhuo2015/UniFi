@@ -4,6 +4,7 @@
 //! App Store compatible, but has limitations:
 //! - No IE data available
 //! - BSSID requires location permission and may return null
+#![allow(unexpected_cfgs)]
 
 use scanner_core::{Platform, RawBeacon, ScanError, Scanner, ScannerCapabilities};
 

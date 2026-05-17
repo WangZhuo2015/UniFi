@@ -35,8 +35,10 @@ const SCAN_DURATION_SECS: u64 = 20;
 const CHANNEL_DWELL_MS: u64 = 1000;
 
 /// Channels to scan
+#[allow(dead_code)]
 #[cfg(target_os = "macos")]
 const SCAN_CHANNELS_2GHZ: &[u8] = &[1, 6, 11];  // Use most common channels
+#[allow(dead_code)]
 #[cfg(target_os = "macos")]
 const SCAN_CHANNELS_5GHZ: &[u8] = &[36, 44, 48, 52, 60, 100, 112, 124, 136, 149, 157, 165];
 
@@ -80,6 +82,7 @@ impl LibpcapScanner {
         }
     }
 
+    #[allow(dead_code)]
     pub fn unavailable_reason(&self) -> Option<&str> {
         self.unavailable_reason.as_deref()
     }

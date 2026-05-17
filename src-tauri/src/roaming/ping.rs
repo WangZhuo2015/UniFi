@@ -359,13 +359,25 @@ fn parse_ttl_from_ping_windows(output: &str) -> Option<u8> {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_parse_rtt() {
         let output = "64 bytes from 8.8.8.8: icmp_seq=0 ttl=117 time=15.123 ms";
         let rtt = parse_rtt_from_ping(output);
         assert_eq!(rtt, Some(15123));
-        
+
         let ttl = parse_ttl_from_ping(output);
+        assert_eq!(ttl, Some(117));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_parse_rtt_windows() {
+        let output = "Reply from 8.8.8.8: bytes=64 time=15ms TTL=117";
+        let rtt = parse_rtt_from_ping_windows(output);
+        assert_eq!(rtt, Some(15000));
+
+        let ttl = parse_ttl_from_ping_windows(output);
         assert_eq!(ttl, Some(117));
     }
 

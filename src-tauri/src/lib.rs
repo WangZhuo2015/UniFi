@@ -1,6 +1,7 @@
 //! UniFi - Multi-platform WiFi Analysis
 //!
 //! Supports GUI (Tauri) and CLI modes.
+#![allow(unexpected_cfgs)]
 
 mod types;
 mod scanner;

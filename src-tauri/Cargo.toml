@@ -1,6 +1,6 @@
 [package]
 name = "unifi"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cross-platform WiFi analysis tool"
 authors = ["you"]
 edition = "2021"
@@ -72,4 +72,3 @@ windows = { version = "0.58", features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 scanner-nl80211 = { path = "../crates/scanner-nl80211" }
 libc = "0.2"
-

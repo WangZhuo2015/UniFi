@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install libpcap-dev (Linux only)
         if: runner.os == 'Linux'
@@ -79,13 +79,13 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run unit tests
-        run: cargo test -p unifi_lib --lib --all-features
+        run: cargo test --lib -p unifi --no-default-features
 
       - name: Run parser tests
-        run: cargo test -p unifi_lib parser:: --all-features
+        run: "cargo test -p unifi parser:: --no-default-features"
 
       - name: Run types tests
-        run: cargo test -p unifi_lib types:: --all-features
+        run: "cargo test -p unifi types:: --no-default-features"
 
   # macOS scanner tests
   test-macos:
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -164,7 +164,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install libpcap-dev
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
@@ -201,12 +201,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
 
-      - name: Install libpcap-dev
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -234,11 +236,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install libpcap-dev (Linux only)
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
 
       - name: Run integration tests
         run: cargo test --workspace --all-features -- --test-threads=1
@@ -253,7 +257,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            features: ""
+            features: "--no-default-features"
           - os: macos-latest
             features: ""
           - os: windows-latest
@@ -261,12 +265,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+      - name: Setup Node.js
+        if: matrix.os != 'ubuntu-latest'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Install libpcap-dev (Linux only)
+      - name: Setup pnpm
+        if: matrix.os != 'ubuntu-latest'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install frontend dependencies
+        if: matrix.os != 'ubuntu-latest'
+        run: pnpm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpcap-dev
 
       - name: Build workspace
         run: cargo build --workspace ${{ matrix.features }}
