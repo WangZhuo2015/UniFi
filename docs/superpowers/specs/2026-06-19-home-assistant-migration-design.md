@@ -20,7 +20,7 @@
 
 ## 架构
 
-在 Mac 上使用 VirtualBox 运行 ARM64 Home Assistant OS。虚拟机通过桥接模式连接 `en5`，直接成为 `192.168.2.0/24` 局域网成员，使 mDNS、SSDP、Matter 和 HomeKit 流量不经过 Docker Desktop 的 NAT 网络。
+在 Mac 上使用 UTM 的 Apple Virtualization 后端（Virtualization.framework）运行 ARM64 Home Assistant OS。该后端直接使用 Apple Silicon 的原生 ARM 虚拟化能力，避免指令集模拟，并比 VirtualBox 更适合本项目的低资源目标。虚拟机通过桥接模式连接 `en5`，直接成为 `192.168.2.0/24` 局域网成员，使 mDNS、SSDP、Matter 和 HomeKit 流量不经过 Docker Desktop 的 NAT 网络。
 
 最终切换时，虚拟机接管旧地址 `192.168.2.62`。旧主机与新虚拟机绝不同时使用该地址，也不同时广播同一 Home Assistant/HomeKit 实例。
 
@@ -31,9 +31,9 @@
 - 1 个虚拟 CPU。
 - 1 GB 内存。
 - 16 GB 动态扩展磁盘。
-- 虚拟机无界面运行。
-- Mac 启动后自动启动虚拟机。
-- 以 macOS 后台 QoS 启动虚拟机进程，让系统调度器优先使用能效核心。
+- 通过 UTM 命令行控制工具无界面运行虚拟机。
+- Mac 启动后自动调用 UTM 命令行控制工具启动虚拟机。
+- 以 macOS 后台 QoS 启动 UTM 虚拟机进程，让系统调度器优先使用能效核心。
 
 Apple Silicon/macOS 没有受支持的虚拟机 CPU 硬亲和性接口，因此不承诺把进程固定在某一个能效核心。1 个 vCPU 限制虚拟机最多持续占用一个核心，后台 QoS 用于表达能效优先级。
 
